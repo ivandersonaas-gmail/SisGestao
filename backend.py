@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 from supabase import create_client
 from dotenv import load_dotenv
 import pdfplumber
@@ -79,7 +79,7 @@ def handle_exception(e):
     # Ponto 1: Captura erros não tratados (como UnicodeError e JSON errors)
     return jsonify({"error": "Erro Interno no Servidor", "message": str(e), "traceback": traceback.format_exc()}), 500
 
-model = SentenceTransformer('all-MiniLM-L6-v2')
+model = TextEmbedding('sentence-transformers/all-MiniLM-L6-v2')
 sb = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
 @app.route("/health", methods=["GET"])
@@ -91,7 +91,7 @@ def embed():
     try:
         payload = request.get_json() or {}
         text = str(payload.get("text", ""))
-        embedding = [float(x) for x in model.encode(text)]
+        embedding = [float(x) for x in list(model.embed([text]))[0]]
         return jsonify({"embedding": embedding})
     except Exception as e:
         return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
@@ -140,7 +140,7 @@ def processar_pdf_background(temp_path, doc_id, doc_name, job_id):
                 if len(content_chunk) < 10:
                     continue
 
-                embedding = [float(x) for x in model.encode(content_chunk)]
+                embedding = [float(x) for x in list(model.embed([content_chunk]))[0]]
                 chunks_to_insert.append({
                     "document_id": doc_id,
                     "content": content_chunk,
@@ -221,7 +221,7 @@ def ask():
         payload = request.get_json() or {}
         question = str(payload.get("question", ""))
         groq_key = os.getenv("GROQ_API_KEY")
-        query_embedding = [float(x) for x in model.encode(question)]
+        query_embedding = [float(x) for x in list(model.embed([question]))[0]]
         use_cache = bool(payload.get("use_cache", True))
 
         # --- PONTO 5: Cache Semântico ---
@@ -253,7 +253,7 @@ def ask():
                 query_embedding_hyde = query_embedding
             else:
                 texto_enriquecido = gerar_documento_hipotetico(question)
-                query_embedding_hyde = [float(x) for x in model.encode(texto_enriquecido)]
+                query_embedding_hyde = [float(x) for x in list(model.embed([texto_enriquecido]))[0]]
             
             # Faz uma única chamada híbrida ao Supabase resolvendo conflitos de overloading
             rpc_res = sb.rpc('search_chunks_hybrid', {
