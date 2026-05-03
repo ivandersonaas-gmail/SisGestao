@@ -1,6 +1,6 @@
 Flask
 flask-cors
-fastembed
+sentence-transformers
 supabase
 python-dotenv
 pdfplumber
