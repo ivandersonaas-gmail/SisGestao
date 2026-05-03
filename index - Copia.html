@@ -1,0 +1,1577 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SisGestão — Processos Urbanos</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#fff;--bg2:#f5f5f1;--bg3:#ebebea;
+  --text:#1a1a1a;--text2:#5a5a5a;--text3:#999;
+  --border:rgba(0,0,0,0.09);--border2:rgba(0,0,0,0.17);
+  --blue:#185FA5;--blue-bg:#e6f1fb;--blue-text:#0c447c;
+  --green:#3B6D11;--green-bg:#eaf3de;--green-text:#27500a;
+  --amber:#BA7517;--amber-bg:#faeeda;--amber-text:#633806;
+  --red:#A32D2D;--red-bg:#fcebeb;--red-text:#791f1f;
+  --purple:#534AB7;--purple-bg:#eeedfe;--purple-text:#3c3489;
+  --teal:#0F6E56;--teal-bg:#e1f5ee;--teal-text:#085041;
+  --coral:#993C1D;--coral-bg:#faece7;--coral-text:#4a1b0c;
+  --r:8px;--rl:12px;--sw:228px
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#1b1b1b;--bg2:#232323;--bg3:#2c2c2c;
+  --text:#f0f0ec;--text2:#aaa;--text3:#666;
+  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.16);
+  --blue:#85B7EB;--blue-bg:#042c53;--blue-text:#b5d4f4;
+  --green:#97C459;--green-bg:#173404;--green-text:#c0dd97;
+  --amber:#EF9F27;--amber-bg:#412402;--amber-text:#fac775;
+  --red:#F09595;--red-bg:#501313;--red-text:#f7c1c1;
+  --purple:#AFA9EC;--purple-bg:#26215c;--purple-text:#cecbf6;
+  --teal:#5DCAA5;--teal-bg:#04342c;--teal-text:#9fe1cb;
+  --coral:#F0997B;--coral-bg:#4a1b0c;--coral-text:#f5c4b3
+}}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:var(--text);background:var(--bg);min-height:100vh;overflow-x:hidden}
+
+/* ── LAYOUT ── */
+.shell{display:flex;min-height:100vh}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:49}
+.sidebar{width:var(--sw);background:var(--bg2);border-right:.5px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:50;transition:transform .25s ease}
+.sb-logo{padding:14px 16px;border-bottom:.5px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
+.logo-icon{width:30px;height:30px;background:var(--blue);border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sb-nav{flex:1;padding:8px 6px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.nav-section{font-size:10px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;padding:10px 10px 4px}
+.nav-btn{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:var(--r);cursor:pointer;font-size:13px;color:var(--text2);transition:all .12s;border:none;background:none;width:100%;text-align:left;font-family:inherit;min-height:40px}
+.nav-btn:hover{background:var(--bg3);color:var(--text)}
+.nav-btn.active{background:var(--blue-bg);color:var(--blue-text);font-weight:500}
+.nav-btn svg{width:16px;height:16px;flex-shrink:0;opacity:.7}
+.nav-btn.active svg{opacity:1}
+.nav-badge{margin-left:auto;background:var(--amber);color:#fff;border-radius:10px;font-size:10px;font-weight:600;padding:1px 7px;min-width:20px;text-align:center}
+.sb-user{padding:13px 15px;border-top:.5px solid var(--border);flex-shrink:0}
+.sb-user-info{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.sb-avatar{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;flex-shrink:0;border:2px solid transparent}
+.sb-user-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-user-role{font-size:10px;color:var(--text3);margin-top:1px}
+.btn-logout{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:9px;border-radius:var(--r);border:.5px solid var(--border2);background:none;color:var(--text2);cursor:pointer;font-family:inherit;font-size:13px;transition:all .12s;min-height:40px}
+.btn-logout:hover{background:var(--red-bg);color:var(--red-text);border-color:var(--red)}
+.btn-logout svg{width:15px;height:15px}
+.content{margin-left:var(--sw);flex:1;min-width:0}
+.topbar{position:sticky;top:0;background:var(--bg);border-bottom:.5px solid var(--border);padding:0 18px;height:48px;display:flex;align-items:center;z-index:40;gap:10px}
+.topbar-title{font-size:14px;font-weight:500;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.hamburger{display:none;flex-direction:column;gap:4px;background:none;border:none;cursor:pointer;padding:8px;border-radius:var(--r);margin-right:4px}
+.hamburger span{display:block;width:20px;height:2px;background:var(--text);border-radius:2px;transition:all .2s}
+.page-content{padding:18px;max-width:1100px}
+
+/* ── LOADING ── */
+.loading-wrap{display:flex;align-items:center;justify-content:center;min-height:260px;flex-direction:column;gap:12px;color:var(--text3)}
+.spinner{width:28px;height:28px;border:2.5px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── LOGIN ── */
+.login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg2);padding:16px}
+.login-card{background:var(--bg);border:.5px solid var(--border2);border-radius:var(--rl);padding:30px 26px;width:100%;max-width:360px}
+
+/* ── CARDS ── */
+.card{background:var(--bg);border:.5px solid var(--border);border-radius:var(--rl);padding:15px 16px;margin-bottom:13px}
+.card-title{font-size:11px;font-weight:500;color:var(--text3);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;text-transform:uppercase;letter-spacing:.5px}
+
+/* ── KPI ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px}
+.kpi{background:var(--bg2);border-radius:var(--r);padding:14px 15px}
+.kpi-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px}
+.kpi-value{font-size:28px;font-weight:500;line-height:1}
+.kpi-sub{font-size:10px;color:var(--text3);margin-top:3px}
+
+/* ── TABLES ── */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font-size:10px;font-weight:500;color:var(--text3);text-align:left;padding:8px 10px;border-bottom:.5px solid var(--border);text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
+td{padding:10px 10px;border-bottom:.5px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+.clickable{cursor:pointer}
+.clickable:hover td{background:var(--bg2)}
+
+/* ── FORMS ── */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.fg{display:flex;flex-direction:column;gap:5px}
+.fg.full{grid-column:1/-1}
+label{font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.3px}
+input,select,textarea{background:var(--bg2);border:.5px solid var(--border2);color:var(--text);padding:9px 11px;border-radius:var(--r);font-size:14px;font-family:inherit;outline:none;width:100%;-webkit-appearance:none;appearance:none}
+input:focus,select:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 2px rgba(24,95,165,.12)}
+textarea{min-height:72px;resize:vertical}
+select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23999' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:30px}
+
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:9px 16px;border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;border:none;transition:all .12s;white-space:nowrap;min-height:40px}
+.btn-primary{background:var(--blue);color:#fff}.btn-primary:active{opacity:.85}
+.btn-success{background:var(--green);color:#fff}.btn-success:active{opacity:.85}
+.btn-amber{background:var(--amber);color:#fff}.btn-amber:active{opacity:.85}
+.btn-danger{background:var(--red);color:#fff}.btn-danger:active{opacity:.85}
+.btn-outline{background:none;border:.5px solid var(--border2);color:var(--text)}.btn-outline:active{background:var(--bg2)}
+.btn-sm{padding:6px 12px;font-size:12px;min-height:32px}
+.btn-full{width:100%}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── BADGES ── */
+.badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:500}
+.b-blue{background:var(--blue-bg);color:var(--blue-text)}
+.b-green{background:var(--green-bg);color:var(--green-text)}
+.b-amber{background:var(--amber-bg);color:var(--amber-text)}
+.b-red{background:var(--red-bg);color:var(--red-text)}
+.b-purple{background:var(--purple-bg);color:var(--purple-text)}
+.b-teal{background:var(--teal-bg);color:var(--teal-text)}
+.b-gray{background:var(--bg3);color:var(--text2)}
+.b-coral{background:var(--coral-bg);color:var(--coral-text)}
+
+/* ── TIMELINE ── */
+.tl-item{display:flex;gap:12px;padding-bottom:16px;position:relative}
+.tl-item:last-child{padding-bottom:0}
+.tl-dot{width:10px;height:10px;border-radius:50%;margin-top:3px;flex-shrink:0;z-index:1}
+.tl-line{position:absolute;left:4px;top:13px;width:2px;bottom:0;background:var(--border2)}
+.tl-item:last-child .tl-line{display:none}
+.tl-content{flex:1;min-width:0}
+.tl-note{font-size:12px;color:var(--text3);margin-top:5px;font-style:italic;background:var(--bg2);padding:8px 10px;border-radius:5px;border-left:2px solid var(--border2);word-break:break-word}
+
+/* ── MISC ── */
+hr{border:none;border-top:.5px solid var(--border);margin:13px 0}
+.empty{text-align:center;padding:36px 16px;color:var(--text3);font-size:13px}
+.alert{padding:10px 13px;border-radius:var(--r);font-size:13px;margin-bottom:12px;line-height:1.5}
+.alert-err{background:var(--red-bg);color:var(--red-text)}
+.alert-ok{background:var(--green-bg);color:var(--green-text)}
+.alert-info{background:var(--blue-bg);color:var(--blue-text)}
+.alert-warn{background:var(--amber-bg);color:var(--amber-text)}
+.fca{display:flex;align-items:center}
+.gap6{gap:6px}.gap8{gap:8px}.gap10{gap:10px}.gap12{gap:12px}.mla{margin-left:auto}
+.mono{font-family:monospace;font-size:12px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.pbar{height:5px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.pfill{height:100%;border-radius:3px;transition:width .3s}
+.chart-wrap{position:relative;width:100%}
+.arm-item{background:var(--bg2);border-radius:var(--r);padding:13px 15px;margin-bottom:8px;display:flex;align-items:center;gap:12px;border:.5px solid var(--border)}
+
+/* ── MODAL ── */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:flex-end;justify-content:center;padding:0}
+.modal{background:var(--bg);border-radius:var(--rl) var(--rl) 0 0;border:.5px solid var(--border2);width:100%;max-width:520px;max-height:92vh;overflow-y:auto}
+.modal-head{padding:14px 17px;border-bottom:.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg);z-index:1}
+.modal-title{font-size:14px;font-weight:500}
+.modal-body{padding:17px}
+.modal-foot{padding:12px 17px;border-top:.5px solid var(--border);display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:var(--bg)}
+.btn-x{background:none;border:none;cursor:pointer;font-size:22px;color:var(--text3);line-height:1;padding:4px;min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center}
+
+/* ── CONSULTA ── */
+.consulta-card{background:var(--bg2);border:.5px solid var(--border);border-radius:var(--rl);padding:13px 15px;margin-bottom:10px}
+.consulta-body{display:none}
+.consulta-body.open{display:block}
+
+/* ── RESPONSIVE ── */
+@media(max-width:768px){
+  .hamburger{display:flex}
+  .sidebar{transform:translateX(-100%)}
+  .sidebar.open{transform:translateX(0);box-shadow:4px 0 24px rgba(0,0,0,.2)}
+  .sidebar-overlay.show{display:block}
+  .content{margin-left:0}
+  .two-col{grid-template-columns:1fr}
+  .form-grid{grid-template-columns:1fr}
+  .kpi-grid{grid-template-columns:repeat(2,1fr)}
+  .page-content{padding:12px}
+  .topbar{padding:0 12px;height:52px}
+  .hide-mobile{display:none}
+}
+@media(min-width:769px){
+  .modal-bg{align-items:center;padding:16px}
+  .modal{border-radius:var(--rl);max-height:88vh}
+}
+/* Tabela responsiva — vira cards no mobile */
+@media(max-width:600px){
+  .rt thead{display:none}
+  .rt,tbody,tr,td{display:block}
+  .rt tr{border:.5px solid var(--border);border-radius:var(--r);margin-bottom:8px;padding:10px 12px;background:var(--bg)}
+  .rt td{display:flex;justify-content:space-between;align-items:center;border:none;padding:5px 0;border-bottom:.5px solid var(--border);font-size:13px}
+  .rt td:last-child{border-bottom:none}
+  .rt td::before{content:attr(data-label);font-size:10px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.3px;flex-shrink:0;margin-right:10px}
+  .rt tr:hover td{background:transparent}
+}
+</style>
+</head>
+<body>
+<div id="sidebar-overlay" class="sidebar-overlay" onclick="closeSidebar()"></div>
+<div id="app"><div class="loading-wrap"><div class="spinner"></div><span>Iniciando...</span></div></div>
+<div id="gmodal"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// ⚙️  CONFIGURAÇÃO — substitua com seus dados do Supabase
+//     Settings → API no painel do Supabase
+// ═══════════════════════════════════════════════════════
+const CFG = {
+  url: 'https://jvoxlmgjzjogfioastxc.supabase.co',
+  key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2b3hsbWdqempvZ2Zpb2FzdHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Nzk3NjYsImV4cCI6MjA5MTM1NTc2Nn0.AhggVl73r0fVtppfpOn5xVyzac6ytQHX2dmT0d3qD14'
+}
+
+// ═══════════════════════════════════════════════════════
+// CONSTANTES
+// ═══════════════════════════════════════════════════════
+const STATUSES = [
+  {id:'ENTRADA',         label:'Entrada no Protocolo',        badge:'b-gray',   dot:'#888',     who:'Protocolo'},
+  {id:'ENC_ANALISE',    label:'Enviado ao Setor de Análise', badge:'b-blue',   dot:'#185FA5',  who:'Protocolo'},
+  {id:'RECEBIDO_SETOR', label:'Recebido no Setor',           badge:'b-teal',   dot:'#0F6E56',  who:'Analista'},
+  {id:'EM_ANALISE',     label:'Em Análise',                  badge:'b-amber',  dot:'#BA7517',  who:'Analista'},
+  {id:'PARECER',        label:'Parecer Emitido',             badge:'b-purple', dot:'#534AB7',  who:'Analista'},
+  {id:'DEV_PROTOCOLO',  label:'Devolvido ao Protocolo',      badge:'b-coral',  dot:'#993C1D',  who:'Analista'},
+  {id:'DEV_REQUERENTE', label:'Devolvido ao Requerente',     badge:'b-red',    dot:'#A32D2D',  who:'Protocolo'},
+  {id:'RETORNO_REQ',    label:'Retorno do Requerente',       badge:'b-amber',  dot:'#BA7517',  who:'Protocolo'},
+  {id:'ANUENCIA',       label:'Anuência Emitida',            badge:'b-teal',   dot:'#0F6E56',  who:'Analista'},
+  {id:'ENC_ASSINATURA', label:'Enc. para Assinatura',        badge:'b-blue',   dot:'#378ADD',  who:'Analista'},
+  {id:'ASSINADO',       label:'Assinado pelo Secretário',    badge:'b-green',  dot:'#3B6D11',  who:'Secretário'},
+  {id:'DISP_RETIRADA',  label:'Disponível para Retirada',    badge:'b-teal',   dot:'#0F6E56',  who:'Protocolo'},
+  {id:'FINALIZADO',     label:'Retirado / Finalizado',       badge:'b-green',  dot:'#3B6D11',  who:'Protocolo'},
+  {id:'ARQUIVADO',      label:'Arquivado',                   badge:'b-gray',   dot:'#aaa',     who:'Admin'},
+];
+const SM = Object.fromEntries(STATUSES.map(s=>[s.id,s]));
+
+const FLOW = {
+  ENTRADA:        {protocol:['ENC_ANALISE'],admin:['ENC_ANALISE','ARQUIVADO'],secretary:['ENC_ANALISE']},
+  ENC_ANALISE:    {analyst:['RECEBIDO_SETOR'],admin:['RECEBIDO_SETOR'],secretary:['RECEBIDO_SETOR']},
+  RECEBIDO_SETOR: {analyst:['EM_ANALISE'],admin:['EM_ANALISE'],secretary:['EM_ANALISE']},
+  EM_ANALISE:     {analyst:['PARECER','ANUENCIA','ENC_ASSINATURA','DEV_PROTOCOLO'],admin:['PARECER','ANUENCIA','ENC_ASSINATURA','DEV_PROTOCOLO'],secretary:['PARECER','ANUENCIA','ENC_ASSINATURA']},
+  PARECER:        {analyst:['DEV_PROTOCOLO'],admin:['DEV_PROTOCOLO'],secretary:['DEV_PROTOCOLO']},
+  DEV_PROTOCOLO:  {protocol:['DEV_REQUERENTE','ENC_ANALISE'],admin:['DEV_REQUERENTE','ENC_ANALISE'],secretary:['DEV_REQUERENTE','ENC_ANALISE']},
+  DEV_REQUERENTE: {protocol:['RETORNO_REQ'],admin:['RETORNO_REQ'],secretary:['RETORNO_REQ']},
+  RETORNO_REQ:    {protocol:['ENC_ANALISE'],admin:['ENC_ANALISE'],secretary:['ENC_ANALISE']},
+  ANUENCIA:       {analyst:['DEV_PROTOCOLO'],admin:['DEV_PROTOCOLO'],secretary:['DEV_PROTOCOLO']},
+  ENC_ASSINATURA: {secretary:['ASSINADO'],admin:['ASSINADO']},
+  ASSINADO:       {protocol:['DISP_RETIRADA'],admin:['DISP_RETIRADA'],secretary:['DISP_RETIRADA']},
+  DISP_RETIRADA:  {protocol:['FINALIZADO'],admin:['FINALIZADO'],secretary:['FINALIZADO']},
+  FINALIZADO:     {admin:['ARQUIVADO']},
+  ARQUIVADO:      {},
+};
+
+const ROLES={admin:{label:'Administrador',badge:'b-red'},secretary:{label:'Secretário(a)',badge:'b-purple'},analyst:{label:'Analista',badge:'b-blue'},protocol:{label:'Protocolo',badge:'b-teal'}};
+const PROC_TYPES=['Habite-se','Licença para Construção','Alteração de Tit. e/ou Projeto Aprovado','Alteração de Tit. e/ou Projeto Aprovado com Habite-se','Demolição','Licença para Implantação de Loteamento e Condomínio','Outro'];
+
+const AVCOL={ivan:{bg:'#faece7',fg:'#993C1D'},patrick:{bg:'#e6f1fb',fg:'#185FA5'},deborah:{bg:'#eaf3de',fg:'#3B6D11'},anapaula:{bg:'#faeeda',fg:'#BA7517'},joyce:{bg:'#fcebeb',fg:'#A32D2D'},nataniele:{bg:'#e1f5ee',fg:'#0F6E56'},iury:{bg:'#eeedfe',fg:'#534AB7'},admin:{bg:'#eeedfe',fg:'#534AB7'},secretaria:{bg:'#e1f5ee',fg:'#0F6E56'},protocolo:{bg:'#f0f0f0',fg:'#555'}};
+function avcol(u){return AVCOL[u]||{bg:'#e6f1fb',fg:'#185FA5'}}
+
+// ═══════════════════════════════════════════════════════
+// SUPABASE CLIENT
+// ═══════════════════════════════════════════════════════
+const sb = supabase.createClient(CFG.url, CFG.key)
+
+// ═══════════════════════════════════════════════════════
+// SESSION
+// ═══════════════════════════════════════════════════════
+const S = {
+  user: JSON.parse(localStorage.getItem('sg_user')||'null'),
+  page:'login', params:{}, charts:{}
+}
+function setSession(user){ S.user=user; localStorage.setItem('sg_user', JSON.stringify(user)) }
+function clearSession(){ S.user=null; localStorage.removeItem('sg_user') }
+
+// ═══════════════════════════════════════════════════════
+// DATA LAYER — todas operações assíncronas
+// ═══════════════════════════════════════════════════════
+const DB = {
+
+  async login(username, password){
+    const {data,error} = await sb.from('users').select('*').eq('username', username.toLowerCase()).eq('active', true).single()
+    if(error||!data) throw new Error('Usuário não encontrado ou inativo.')
+    if(data.password_hash !== password) throw new Error('Senha incorreta.')
+    return data
+  },
+
+  async getUsers(filters={}){
+    let q = sb.from('users').select('*')
+    if(filters.role) q = q.eq('role', filters.role)
+    const {data,error} = await q.order('name')
+    if(error) throw error
+    return data||[]
+  },
+
+  async saveUser(user){
+    if(user.id){
+      const {data,error} = await sb.from('users').update(user).eq('id',user.id).select().single()
+      if(error) throw error
+      return data
+    } else {
+      const {data,error} = await sb.from('users').insert(user).select().single()
+      if(error) throw error
+      return data
+    }
+  },
+
+  async getAnalysts(){
+    const {data,error} = await sb.from('users').select('*').eq('role','analyst').eq('active',true).order('name')
+    if(error) throw error
+    return data||[]
+  },
+
+  async getProcesses(role, userId, filters={}){
+    let q = sb.from('processes_view').select('*')
+    if(role==='analyst'){
+      q = q.or(`assigned_to.eq.${userId},and(current_status.eq.RECEBIDO_SETOR,assigned_to.is.null)`)
+    } else if(role==='protocol'){
+      q = q.or(`created_by.eq.${userId},current_status.in.(ENTRADA,ENC_ANALISE,DEV_PROTOCOLO,DEV_REQUERENTE,RETORNO_REQ,ASSINADO,DISP_RETIRADA)`)
+    }
+    if(filters.status) q = q.eq('current_status', filters.status)
+    if(filters.assignedTo) q = q.eq('analyst_username', filters.assignedTo)
+    if(filters.search){
+      const s = filters.search
+      q = q.or(`protocol.ilike.%${s}%,requester.ilike.%${s}%`)
+    }
+    const {data,error} = await q.order('updated_at', {ascending:false})
+    if(error) throw error
+    return data||[]
+  },
+
+  async getProcess(id){
+    const [{data:p,error:e1},{data:movs,error:e2}] = await Promise.all([
+      sb.from('processes_view').select('*').eq('id',id).single(),
+      sb.from('movements').select('*').eq('process_id',id).order('created_at',{ascending:true})
+    ])
+    if(e1) throw e1
+    return {...p, movements: movs||[]}
+  },
+
+  async createProcess(proc){
+    const {data,error} = await sb.from('processes').insert(proc).select().single()
+    if(error) throw error
+    return data
+  },
+
+  async updateProcess(id, updates){
+    const {data,error} = await sb.from('processes').update(updates).eq('id',id).select().single()
+    if(error) throw error
+    return data
+  },
+
+  async addMovement(procId, status, notes){
+    const s = SM[status]
+    const mov = {
+      process_id: procId,
+      status,
+      label: s?.label||status,
+      notes: notes||'',
+      created_by_id: S.user.id,
+      created_by_name: S.user.name
+    }
+    const {data,error} = await sb.from('movements').insert(mov).select().single()
+    if(error) throw error
+    // Trigger in DB updates current_status automatically
+    await this.log('MOVIMENTO', `Processo`, `→ ${s?.label||status}${notes?' — '+notes.slice(0,60):''}`)
+    return data
+  },
+
+  async armario(){
+    const {data,error} = await sb.from('processes_view').select('*')
+      .eq('current_status','RECEBIDO_SETOR').is('assigned_to',null)
+      .order('updated_at',{ascending:false})
+    if(error) throw error
+    return data||[]
+  },
+
+  async pending(role){
+    let statuses = []
+    if(role==='protocol'||role==='admin') statuses=['DEV_PROTOCOLO','RETORNO_REQ','ASSINADO','DISP_RETIRADA']
+    else if(role==='secretary') statuses=['ENC_ASSINATURA']
+    if(!statuses.length) return[]
+    const {data,error} = await sb.from('processes_view').select('*')
+      .in('current_status', statuses).order('updated_at',{ascending:false})
+    if(error) throw error
+    return data||[]
+  },
+
+  async productivity(){
+    const {data,error} = await sb.from('analyst_productivity').select('*').order('total_processes',{ascending:false})
+    if(error) throw error
+    return data||[]
+  },
+
+  async getAudit(){
+    const {data,error} = await sb.from('audit_log').select('*').order('created_at',{ascending:false}).limit(200)
+    if(error) throw error
+    return data||[]
+  },
+
+  async log(action, target, details){
+    await sb.from('audit_log').insert({user_id:S.user?.id,user_name:S.user?.name||'Sistema',action,target,details}).then(()=>{})
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════
+const el = id => document.getElementById(id)
+const loading = () => '<div class="loading-wrap"><div class="spinner"></div><span>Carregando...</span></div>'
+
+function setAlert(id,msg,type='err'){
+  const e=el(id);if(e)e.innerHTML=msg?`<div class="alert alert-${type}">${msg}</div>`:''
+}
+
+function fmtDate(ts){
+  if(!ts)return'—'
+  return new Date(ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
+}
+function fmtD(ts){if(!ts)return'—';return new Date(ts).toLocaleDateString('pt-BR')}
+
+function sbadge(id){
+  const s=SM[id]||{label:id,badge:'b-gray'}
+  return`<span class="badge ${s.badge}">${s.label}</span>`
+}
+
+function avatar(u, size=28){
+  if(!u)return''
+  const un = u.username||''
+  const c=avcol(un)
+  const sz=Math.round(size*.36)
+  return`<div style="width:${size}px;height:${size}px;border-radius:50%;background:${c.bg};color:${c.fg};display:inline-flex;align-items:center;justify-content:center;font-size:${sz}px;font-weight:600;flex-shrink:0;border:1.5px solid ${c.fg}33">${u.initials||u.name[0]}</div>`
+}
+
+function closeModal(){el('gmodal').innerHTML=''}
+function showModal(html){
+  el('gmodal').innerHTML=`<div class="modal-bg" onclick="if(event.target===this)closeModal()">${html}</div>`
+}
+
+function openSidebar(){
+  document.querySelector('.sidebar')?.classList.add('open')
+  el('sidebar-overlay')?.classList.add('show')
+}
+function closeSidebar(){
+  document.querySelector('.sidebar')?.classList.remove('open')
+  el('sidebar-overlay')?.classList.remove('show')
+}
+
+// ═══════════════════════════════════════════════════════
+// ICONS
+// ═══════════════════════════════════════════════════════
+const IC={
+  dash:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,
+  box:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>`,
+  proc:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+  plus:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  chart:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+  users:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+  audit:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+  logout:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`,
+  scan:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 7 4"/><polyline points="17 4 20 4 20 7"/><line x1="4" y1="12" x2="20" y2="12"/><polyline points="4 17 4 20 7 20"/><polyline points="17 20 20 20 20 17"/></svg>`,
+  search:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+  bell:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`,
+};
+
+function nb(icon,label,page,badge){
+  const a=S.page===page?' active':''
+  const b=badge?`<span class="nav-badge">${badge}</span>`:''
+  return`<button class="nav-btn${a}" onclick="closeSidebar();go('${page}')">${IC[icon]}<span>${label}</span>${b}</button>`
+}
+
+// ═══════════════════════════════════════════════════════
+// SHELL — responsivo com hamburger
+// ═══════════════════════════════════════════════════════
+function shell(body, title, actions=''){
+  const u=S.user, r=u.role
+  const c=avcol(u.username)
+  const arm='' // badge will be loaded async after render
+
+  let nav=''
+  if(r==='protocol'){
+    nav=`<div class="nav-section">Protocolo</div>
+    ${nb('dash','Dashboard','dashboard')}
+    ${nb('plus','Novo Processo','new-proc')}
+    ${nb('proc','Meus Processos','processes')}
+    ${nb('bell','Aguardando Ação','pending')}
+    ${nb('search','Consultar Processo','consulta')}`
+  } else if(r==='analyst'){
+    nav=`<div class="nav-section">Analista</div>
+    ${nb('dash','Dashboard','dashboard')}
+    ${nb('scan','Registrar Recebimento','receive')}
+    ${nb('box','Armário do Setor','armario')}
+    ${nb('proc','Meus Processos','processes')}
+    ${nb('search','Consultar Processo','consulta')}
+    ${nb('chart','Minha Produtividade','productivity')}`
+  } else if(r==='secretary'){
+    nav=`<div class="nav-section">Secretaria</div>
+    ${nb('dash','Painel Geral','dashboard')}
+    ${nb('proc','Todos os Processos','processes')}
+    ${nb('bell','Aguard. Assinatura','pending')}
+    ${nb('box','Armário do Setor','armario')}
+    ${nb('search','Consultar Processo','consulta')}
+    ${nb('chart','Produtividade','productivity')}`
+  } else {
+    nav=`<div class="nav-section">Gestão</div>
+    ${nb('dash','Painel Geral','dashboard')}
+    ${nb('proc','Todos os Processos','processes')}
+    ${nb('plus','Novo Processo','new-proc')}
+    ${nb('bell','Aguardando Ação','pending')}
+    ${nb('box','Armário do Setor','armario')}
+    ${nb('search','Consultar Processo','consulta')}
+    ${nb('chart','Produtividade','productivity')}
+    <div class="nav-section">Administração</div>
+    ${nb('users','Usuários','users')}
+    ${nb('audit','Auditoria','audit')}`
+  }
+
+  return`<div class="shell">
+  <aside class="sidebar" id="main-sidebar">
+    <div class="sb-logo">
+      <div class="logo-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+      <div><div style="font-size:13px;font-weight:500">SisGestão</div><div style="font-size:10px;color:var(--text3)">Processos Urbanos</div></div>
+    </div>
+    <nav class="sb-nav">${nav}</nav>
+    <div class="sb-user">
+      <div class="sb-user-info">
+        <div class="sb-avatar" style="background:${c.bg};color:${c.fg};border-color:${c.fg}44">${u.initials||u.name[0]}</div>
+        <div style="flex:1;min-width:0">
+          <div class="sb-user-name">${u.name}</div>
+          <div class="sb-user-role">${ROLES[u.role]?.label}</div>
+        </div>
+      </div>
+      <button class="btn-logout" onclick="doLogout()">${IC.logout}<span>Sair do sistema</span></button>
+    </div>
+  </aside>
+  <div class="content">
+    <div class="topbar">
+      <button class="hamburger" onclick="openSidebar()"><span></span><span></span><span></span></button>
+      <span class="topbar-title">${title}</span>
+      <div class="topbar-actions">${actions}</div>
+    </div>
+    <div class="page-content">${body}</div>
+  </div>
+</div>`
+}
+
+// ═══════════════════════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════════════════════
+async function doLogin(){
+  const un=el('l-user')?.value.trim().toLowerCase()
+  const pw=el('l-pass')?.value
+  if(!un||!pw){setAlert('l-alert','Preencha usuário e senha.');return}
+  const btn=el('l-btn')
+  btn.disabled=true;btn.textContent='Entrando...'
+  try{
+    const user = await DB.login(un,pw)
+    setSession(user)
+    await DB.log('LOGIN',user.name,'Login efetuado')
+    go('dashboard')
+  }catch(e){
+    setAlert('l-alert',e.message)
+    btn.disabled=false;btn.textContent='Entrar'
+  }
+}
+
+async function doLogout(){
+  await DB.log('LOGOUT',S.user?.name||'','').catch(()=>{})
+  clearSession()
+  go('login')
+}
+
+// ═══════════════════════════════════════════════════════
+// ROUTER
+// ═══════════════════════════════════════════════════════
+async function go(page, params){
+  S.page=page; S.params=params||{}
+  closeSidebar()
+  const app=el('app')
+  if(!S.user){app.innerHTML=pageLogin();return}
+  // Guard
+  const r=S.user.role
+  if(['users','audit'].includes(page)&&r!=='admin'){S.page='dashboard'}
+  if(page==='new-proc'&&r==='analyst'){S.page='processes'}
+  if(page==='productivity'&&r==='protocol'){S.page='processes'}
+  if(page==='receive'&&!['analyst','admin','secretary'].includes(r)){S.page='processes'}
+  // Show sidebar loading
+  app.innerHTML=shell(loading(),S.page)
+  try{
+    const html = await renderPage()
+    app.innerHTML=html
+    afterRender()
+  }catch(e){
+    console.error(e)
+    app.innerHTML=shell(`<div class="alert alert-err">Erro ao carregar: ${e.message}</div>`,'Erro')
+  }
+}
+
+async function renderPage(){
+  const pages={
+    dashboard:pageDashboard, receive:pageReceive, armario:pageArmario,
+    processes:pageProcesses, 'proc-detail':pageProcDetail, 'new-proc':pageNewProc,
+    productivity:pageProductivity, consulta:pageConsulta, pending:pagePending,
+    users:pageUsers, audit:pageAudit,
+  }
+  return (pages[S.page]||pageDashboard)()
+}
+
+function afterRender(){
+  // Charts run after DOM is ready
+  if(window._afterRenderFns){window._afterRenderFns.forEach(f=>f());window._afterRenderFns=[]}
+}
+function onAfterRender(fn){window._afterRenderFns=window._afterRenderFns||[];window._afterRenderFns.push(fn)}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: LOGIN
+// ═══════════════════════════════════════════════════════
+function pageLogin(){
+  return`<div class="login-screen">
+  <div class="login-card">
+    <div style="text-align:center;margin-bottom:22px">
+      <div style="width:48px;height:48px;background:var(--blue);border-radius:12px;display:flex;align-items:center;justify-content:center;margin:0 auto 12px">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      </div>
+      <div style="font-size:18px;font-weight:500">SisGestão</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:3px">Controle de Processos Urbanos</div>
+    </div>
+    <div id="l-alert"></div>
+    <div id="l-area">
+      <div class="fg" style="margin-bottom:11px"><label>Usuário</label><input id="l-user" type="text" autocomplete="username" placeholder="seu.login" style="font-size:16px"></div>
+      <div class="fg" style="margin-bottom:8px"><label>Senha</label><input id="l-pass" type="password" placeholder="••••••••" style="font-size:16px" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <div style="text-align:right;margin-bottom:16px"><button onclick="showForgot()" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--blue);font-family:inherit;padding:4px">Esqueci minha senha</button></div>
+      <button id="l-btn" class="btn btn-primary btn-full" onclick="doLogin()" style="font-size:15px;padding:12px">Entrar</button>
+    </div>
+  </div>
+</div>`
+}
+
+function showForgot(){
+  el('l-area').innerHTML=`
+    <div class="alert alert-info">Informe seu usuário cadastrado.</div>
+    <div class="fg" style="margin-bottom:11px"><label>Usuário</label><input id="f-user" type="text" style="font-size:16px"></div>
+    <button class="btn btn-primary btn-full" onclick="doForgot()">Verificar</button>
+    <button onclick="go('login')" class="btn btn-outline btn-full" style="margin-top:8px">← Voltar</button>`
+}
+async function doForgot(){
+  try{
+    const users=await DB.getUsers()
+    const u=users.find(x=>x.username===el('f-user')?.value.trim().toLowerCase())
+    el('l-area').innerHTML=u
+      ?`<div class="alert alert-ok"><strong>${u.name}</strong><br>Contate o Administrador para redefinir sua senha.<br><span style="font-size:11px">admin@sistema.gov</span></div><button onclick="go('login')" class="btn btn-outline btn-full" style="margin-top:8px">← Voltar</button>`
+      :`<div class="alert alert-err">Usuário não encontrado.</div><button onclick="go('login')" class="btn btn-outline btn-full" style="margin-top:8px">← Voltar</button>`
+  }catch(e){setAlert('l-alert',e.message)}
+}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: DASHBOARD
+// ═══════════════════════════════════════════════════════
+async function pageDashboard(){
+  const r=S.user.role, uid=S.user.id, isAnalyst=r==='analyst'
+  const [procs,armLen] = await Promise.all([
+    DB.getProcesses(r,uid),
+    r!=='analyst'?DB.armario().then(a=>a.length):Promise.resolve(0)
+  ])
+  const myProcs=isAnalyst?procs.filter(p=>p.assigned_to===uid):procs
+  const total=myProcs.length
+  const active=myProcs.filter(p=>!['FINALIZADO','ARQUIVADO'].includes(p.current_status)).length
+  const fin=myProcs.filter(p=>p.current_status==='FINALIZADO').length
+  const counts={}
+  STATUSES.forEach(s=>counts[s.id]=0)
+  myProcs.forEach(p=>counts[p.current_status]=(counts[p.current_status]||0)+1)
+  const recent=[...myProcs].sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at)).slice(0,6)
+
+  onAfterRender(()=>{
+    const c=el('dashChart');if(!c)return
+    if(S.charts.dash)S.charts.dash.destroy()
+    const cmap={ENTRADA:'#888',ENC_ANALISE:'#185FA5',RECEBIDO_SETOR:'#0F6E56',EM_ANALISE:'#BA7517',PARECER:'#534AB7',DEV_PROTOCOLO:'#993C1D',DEV_REQUERENTE:'#A32D2D',RETORNO_REQ:'#BA7517',ANUENCIA:'#0F6E56',ENC_ASSINATURA:'#378ADD',ASSINADO:'#3B6D11',DISP_RETIRADA:'#0F6E56',FINALIZADO:'#3B6D11',ARQUIVADO:'#aaa'}
+    const labels=[],data=[],colors=[]
+    STATUSES.forEach(s=>{if(counts[s.id]>0){labels.push(s.label);data.push(counts[s.id]);colors.push(cmap[s.id])}})
+    S.charts.dash=new Chart(c,{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'bottom',labels:{font:{size:10},boxWidth:9,padding:8}}}}})
+  })
+
+  const body=`
+  <div class="kpi-grid">
+    <div class="kpi"><div class="kpi-label">${isAnalyst?'Meus processos':'Total'}</div><div class="kpi-value" style="color:var(--blue)">${total}</div></div>
+    <div class="kpi"><div class="kpi-label">Em andamento</div><div class="kpi-value" style="color:var(--amber)">${active}</div></div>
+    <div class="kpi"><div class="kpi-label">Finalizados</div><div class="kpi-value" style="color:var(--green)">${fin}</div></div>
+    ${!isAnalyst?`<div class="kpi clickable" onclick="go('armario')"><div class="kpi-label">No armário</div><div class="kpi-value" style="color:var(--amber)">${armLen}</div><div class="kpi-sub">sem analista</div></div>`:''}
+  </div>
+  <div class="two-col">
+    <div class="card"><div class="card-title">Por status</div><div class="chart-wrap" style="height:220px"><canvas id="dashChart"></canvas></div></div>
+    <div class="card">
+      <div class="card-title">Últimas movimentações</div>
+      ${recent.length?recent.map(p=>`
+        <div class="fca gap10" style="padding:9px 0;border-bottom:.5px solid var(--border);cursor:pointer" onclick="go('proc-detail',{id:'${p.id}'})">
+          <div style="flex:1;min-width:0">
+            <div class="mono" style="font-weight:500">${p.protocol}</div>
+            <div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.requester}</div>
+          </div>
+          ${sbadge(p.current_status)}
+        </div>`).join(''):`<div class="empty">Nenhum processo.</div>`}
+    </div>
+  </div>`
+  return shell(body, isAnalyst?'Meu painel':'Painel geral')
+}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: PROCESSES
+// ═══════════════════════════════════════════════════════
+async function pageProcesses(){
+  const r=S.user.role, uid=S.user.id
+  const canAll=r==='admin'||r==='secretary'
+  const analysts=canAll?await DB.getAnalysts():[]
+  const fs=S.params.status||'', fa=S.params.analyst||'', q=S.params.search||''
+  const procs=await DB.getProcesses(r,uid,{status:fs,assignedTo:fa,search:q})
+  const myProcs=r==='analyst'?procs.filter(p=>p.assigned_to===uid):procs
+
+  const canNew=r!=='analyst'
+  const actions=canNew?`<button class="btn btn-primary btn-sm" onclick="go('new-proc')">+ Novo</button>`:''
+
+  const body=`
+  <div class="fca gap6" style="flex-wrap:wrap;margin-bottom:12px">
+    <input type="text" placeholder="Protocolo ou requerente..." value="${q}" oninput="S.params.search=this.value;reloadProcs()" style="max-width:220px;font-size:14px">
+    <select onchange="S.params.status=this.value;reloadProcs()" style="width:auto;font-size:13px">
+      <option value="">Todos os status</option>
+      ${STATUSES.map(s=>`<option value="${s.id}"${fs===s.id?' selected':''}>${s.label}</option>`).join('')}
+    </select>
+    ${canAll?`<select onchange="S.params.analyst=this.value;reloadProcs()" style="width:auto;font-size:13px">
+      <option value="">Todos analistas</option>
+      ${analysts.map(a=>`<option value="${a.username}"${fa===a.username?' selected':''}>${a.name}</option>`).join('')}
+    </select>`:''}
+    <span style="font-size:12px;color:var(--text3);margin-left:auto">${myProcs.length} processo(s)</span>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="rt">
+      <thead><tr>
+        <th>Protocolo</th><th>Requerente</th><th class="hide-mobile">Tipo</th>
+        ${canAll?'<th class="hide-mobile">Analista</th>':''}
+        <th>Status</th><th class="hide-mobile">Movim.</th>
+      </tr></thead>
+      <tbody>
+      ${myProcs.length?myProcs.map(p=>{
+        const an=p.analyst_name?{name:p.analyst_name,username:p.analyst_username,initials:p.analyst_initials}:null
+        return`<tr class="clickable" onclick="go('proc-detail',{id:'${p.id}'})">
+          <td data-label="Protocolo"><span class="mono">${p.protocol}</span></td>
+          <td data-label="Requerente" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.requester}</td>
+          <td data-label="Tipo" class="hide-mobile" style="font-size:11px;color:var(--text2)">${p.type}</td>
+          ${canAll?`<td data-label="Analista" class="hide-mobile">${an?`<div class="fca gap6">${avatar(an,22)}<span style="font-size:12px">${an.name.split(' ')[0]}</span></div>`:'<span style="color:var(--text3)">—</span>'}</td>`:''}
+          <td data-label="Status">${sbadge(p.current_status)}</td>
+          <td data-label="Movim." class="hide-mobile" style="font-size:12px;color:var(--text3)">${p.movement_count||0}</td>
+        </tr>`
+      }).join(''):`<tr><td colspan="6"><div class="empty">Nenhum processo encontrado.</div></td></tr>`}
+      </tbody>
+    </table>
+  </div>`
+  return shell(body, canAll?'Todos os processos':'Meus processos', actions)
+}
+
+async function reloadProcs(){
+  const w=el('page-content')
+  // quick filter without full page reload
+  go('processes', S.params)
+}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: PROCESS DETAIL
+// ═══════════════════════════════════════════════════════
+async function pageProcDetail(){
+  const proc=await DB.getProcess(S.params.id)
+  if(!proc) return shell('<div class="alert alert-err">Processo não encontrado.</div>','Erro')
+  const r=S.user.role, uid=S.user.id
+  const isMyProc=r==='analyst'&&proc.assigned_to===uid
+  const isSuper=r==='admin'||r==='secretary'
+  const canMove=isMyProc||isSuper||(r==='protocol')
+  const nextStatuses=(FLOW[proc.current_status]?.[r]||[]).map(id=>SM[id]).filter(Boolean)
+  const an=proc.analyst_name?{name:proc.analyst_name,username:proc.analyst_username,initials:proc.analyst_initials}:null
+  const movs=[...proc.movements].reverse()
+
+  const analysts=isSuper&&proc.current_status==='RECEBIDO_SETOR'&&!proc.assigned_to?await DB.getAnalysts():[]
+
+  const body=`
+  <div class="fca gap10" style="margin-bottom:14px;flex-wrap:wrap">
+    <button class="btn btn-outline btn-sm" onclick="go('processes')">← Voltar</button>
+    <span class="mono" style="font-size:15px;font-weight:500">${proc.protocol}</span>
+    ${sbadge(proc.current_status)}
+  </div>
+  <div class="two-col" style="align-items:start">
+    <div>
+      <div class="card">
+        <div class="card-title">Dados do processo</div>
+        <table style="font-size:13px">
+          <tr><td style="color:var(--text3);padding:6px 0;width:90px">Requerente</td><td style="font-weight:500">${proc.requester}</td></tr>
+          <tr><td style="color:var(--text3);padding:6px 0">Tipo</td><td>${proc.type}</td></tr>
+          <tr><td style="color:var(--text3);padding:6px 0">Entrada</td><td>${fmtD(proc.created_at)}</td></tr>
+          <tr><td style="color:var(--text3);padding:6px 0">Protocolo</td><td style="font-size:12px">${proc.created_by_name||'—'}</td></tr>
+          <tr><td style="color:var(--text3);padding:6px 0">Analista</td><td>${an?`<div class="fca gap8">${avatar(an,22)}<span>${an.name}</span></div>`:'<span style="color:var(--text3)">Não atribuído</span>'}</td></tr>
+          <tr><td style="color:var(--text3);padding:6px 0">Ciclos</td><td><span class="badge b-gray">${proc.movement_count} movim.</span></td></tr>
+        </table>
+        ${analysts.length?`
+        <hr>
+        <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:7px;text-transform:uppercase;letter-spacing:.3px">Atribuir analista</div>
+        <div class="fca gap8">
+          <select id="sel-an" style="flex:1"><option value="">Selecione...</option>
+            ${analysts.map(a=>`<option value="${a.id}|${a.username}|${a.name}">${a.name}</option>`).join('')}
+          </select>
+          <button class="btn btn-outline btn-sm" onclick="doAssign('${proc.id}')">Atribuir</button>
+        </div>`:''}
+      </div>
+
+      ${canMove&&nextStatuses.length?`
+      <div class="card">
+        <div class="card-title">Registrar movimentação</div>
+        <div class="alert alert-info" style="margin-bottom:10px;font-size:12px">Responsável atual: <strong>${SM[proc.current_status]?.who||'—'}</strong></div>
+        <div class="fg" style="margin-bottom:10px">
+          <label>Próximo status *</label>
+          <select id="new-status"><option value="">Selecione...</option>
+            ${nextStatuses.map(s=>`<option value="${s.id}">${s.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="fg" style="margin-bottom:12px">
+          <label>Observações / notas técnicas</label>
+          <textarea id="new-notes" placeholder="Descreva a movimentação, pendências, pareceres, fundamentação..."></textarea>
+        </div>
+        <div id="mov-alert"></div>
+        <button class="btn btn-success btn-full" onclick="doAddMov('${proc.id}')">Registrar movimentação</button>
+      </div>`
+      :canMove?`<div class="card"><div class="empty" style="padding:18px">Nenhuma ação disponível para seu perfil neste status.</div></div>`
+      :`<div class="card"><div class="alert alert-warn" style="margin-bottom:0">Aguardando ação de: <strong>${SM[proc.current_status]?.who||'—'}</strong></div></div>`}
+    </div>
+
+    <div class="card">
+      <div class="card-title">Histórico <span class="badge b-gray" style="margin-left:4px;font-size:10px">${movs.length} etapas</span></div>
+      ${movs.map((m,i,arr)=>`
+        <div class="tl-item">
+          ${i<arr.length-1?'<div class="tl-line"></div>':''}
+          <div class="tl-dot" style="background:${SM[m.status]?.dot||'#888'}"></div>
+          <div class="tl-content">
+            <div style="font-size:13px;font-weight:500">${m.label}</div>
+            <div style="font-size:11px;color:var(--text3)">${fmtDate(m.created_at)}</div>
+            <div style="font-size:12px;color:var(--text2)">por <strong>${m.created_by_name}</strong></div>
+            ${m.notes?`<div class="tl-note">${m.notes}</div>`:''}
+          </div>
+        </div>`).join('')}
+    </div>
+  </div>`
+  return shell(body, `Processo ${proc.protocol}`)
+}
+
+async function doAssign(procId){
+  const val=el('sel-an')?.value;if(!val)return
+  const [id,username,name]=val.split('|')
+  try{
+    await DB.updateProcess(procId,{assigned_to:id})
+    await DB.addMovement(procId,'EM_ANALISE',`Atribuído ao analista ${name} pela secretaria/admin.`)
+    go('proc-detail',{id:procId})
+  }catch(e){alert('Erro: '+e.message)}
+}
+
+async function doAddMov(procId){
+  const status=el('new-status')?.value
+  const notes=el('new-notes')?.value
+  if(!status){setAlert('mov-alert','Selecione um status.');return}
+  const btn=document.querySelector('#mov-alert + button')
+  if(btn){btn.disabled=true;btn.textContent='Salvando...'}
+  try{
+    await DB.addMovement(procId,status,notes)
+    go('proc-detail',{id:procId})
+  }catch(e){
+    setAlert('mov-alert','Erro: '+e.message)
+    if(btn){btn.disabled=false;btn.textContent='Registrar movimentação'}
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: NEW PROCESS
+// ═══════════════════════════════════════════════════════
+async function pageNewProc(){
+  const body=`
+  <div class="card" style="max-width:580px">
+    <div class="card-title">Cadastro de processo</div>
+    <div class="form-grid">
+      <div class="fg"><label>N° Protocolo *</label><input id="np-prot" type="text" placeholder="00.000/2026" style="font-family:monospace;font-size:15px"></div>
+      <div class="fg"><label>Data de entrada *</label><input id="np-date" type="date" value="${new Date().toISOString().split('T')[0]}"></div>
+      <div class="fg full"><label>Requerente *</label><input id="np-req" type="text" placeholder="Nome ou empresa do requerente"></div>
+      <div class="fg full"><label>Tipo de processo *</label><select id="np-type">${PROC_TYPES.map(t=>`<option>${t}</option>`).join('')}</select></div>
+      <div class="fg full"><label>Enviar ao setor de análise agora?</label>
+        <select id="np-enc">
+          <option value="0">Não — registrar somente entrada no protocolo</option>
+          <option value="1">Sim — enviar ao setor de análise</option>
+        </select>
+      </div>
+      <div class="fg full"><label>Observações iniciais</label>
+        <textarea id="np-notes" placeholder="Documentação recebida, informações adicionais..."></textarea>
+      </div>
+    </div>
+    <div id="np-alert" style="margin-top:10px"></div>
+    <div class="fca gap8" style="margin-top:13px">
+      <button id="np-btn" class="btn btn-primary" onclick="saveNewProc()">Cadastrar processo</button>
+      <button class="btn btn-outline" onclick="go('processes')">Cancelar</button>
+    </div>
+  </div>`
+  return shell(body,'Novo processo')
+}
+
+async function saveNewProc(){
+  const prot=el('np-prot')?.value.trim().toUpperCase()
+  const req=el('np-req')?.value.trim()
+  const type=el('np-type')?.value
+  const dateStr=el('np-date')?.value
+  const notes=el('np-notes')?.value.trim()
+  const enc=el('np-enc')?.value==='1'
+  if(!prot||!req){setAlert('np-alert','Preencha protocolo e requerente.');return}
+  const btn=el('np-btn');btn.disabled=true;btn.textContent='Salvando...'
+  try{
+    const ts=dateStr?new Date(dateStr+'T10:00:00').toISOString():new Date().toISOString()
+    const proc=await DB.createProcess({
+      protocol:prot,requester:req.toUpperCase(),type,
+      current_status:'ENTRADA',created_by:S.user.id,created_at:ts,updated_at:ts
+    })
+    await DB.addMovement(proc.id,'ENTRADA',notes||'Processo registrado no protocolo.')
+    if(enc) await DB.addMovement(proc.id,'ENC_ANALISE','Enviado ao setor de análise.')
+    await DB.log('CADASTRO',`Processo ${prot}`,`Requerente: ${req}`)
+    go('proc-detail',{id:proc.id})
+  }catch(e){
+    setAlert('np-alert','Erro: '+e.message)
+    btn.disabled=false;btn.textContent='Cadastrar processo'
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: RECEIVE
+// ═══════════════════════════════════════════════════════
+async function pageReceive(){
+  const pending=await DB.getProcesses(S.user.role,S.user.id,{status:'ENC_ANALISE'})
+  const body=`
+  <div class="card" style="max-width:520px">
+    <div class="fca gap10" style="margin-bottom:13px">
+      <div style="width:38px;height:38px;border-radius:var(--r);background:var(--teal-bg);display:flex;align-items:center;justify-content:center;color:var(--teal-text);flex-shrink:0">${IC.scan}</div>
+      <div><div style="font-size:14px;font-weight:500">Registrar recebimento no setor</div><div style="font-size:12px;color:var(--text3)">Substitui o caderno — qualquer analista pode fazer</div></div>
+    </div>
+    <div class="alert alert-info" style="margin-bottom:12px">Digite o número de protocolo do processo físico que chegou ao setor.</div>
+    <div class="fg" style="margin-bottom:10px">
+      <label>Número de protocolo *</label>
+      <input id="rec-prot" type="text" placeholder="Ex: 5.010/2026" style="font-size:18px;font-family:monospace" onkeydown="if(event.key==='Enter')doReceive()">
+    </div>
+    <div class="fg" style="margin-bottom:13px">
+      <label>Observação (opcional)</label>
+      <textarea id="rec-obs" placeholder="Ex: Recebido junto com 3 processos da entrega das 14h..."></textarea>
+    </div>
+    <div id="rec-alert"></div>
+    <button class="btn btn-success btn-full" style="font-size:15px;padding:12px" onclick="doReceive()">Confirmar recebimento no setor</button>
+  </div>
+  <div class="card" style="max-width:520px">
+    <div class="card-title">Aguardando recebimento (${pending.length})</div>
+    ${pending.length===0?`<div class="empty" style="padding:16px">Nenhum processo aguardando.</div>`
+    :pending.map(p=>`
+      <div class="fca gap10" style="padding:10px 0;border-bottom:.5px solid var(--border)">
+        <div style="flex:1"><div class="mono" style="font-weight:500">${p.protocol}</div><div style="font-size:12px;color:var(--text3)">${p.requester}</div></div>
+        <button class="btn btn-outline btn-sm" onclick="el('rec-prot').value='${p.protocol}';el('rec-prot').focus()">Selecionar</button>
+      </div>`).join('')}
+  </div>`
+  return shell(body,'Registrar recebimento no setor')
+}
+
+async function doReceive(){
+  const prot=el('rec-prot')?.value.trim()
+  const obs=el('rec-obs')?.value.trim()
+  if(!prot){setAlert('rec-alert','Informe o número do protocolo.');return}
+  const btn=document.querySelector('#rec-alert + button')
+  if(btn){btn.disabled=true;btn.textContent='Registrando...'}
+  try{
+    const procs=await DB.getProcesses('admin','',{search:prot})
+    const p=procs.find(x=>x.protocol.toUpperCase()===prot.toUpperCase())
+    if(!p) throw new Error(`Protocolo ${prot} não encontrado no sistema.`)
+    if(p.current_status==='RECEBIDO_SETOR') throw new Error('Processo já registrado como recebido.')
+    if(p.current_status!=='ENC_ANALISE') throw new Error('Este processo não está com status de enviado ao setor.')
+    await DB.addMovement(p.id,'RECEBIDO_SETOR',obs||'Recebimento registrado no setor de análise.')
+    setAlert('rec-alert',`Processo <strong>${p.protocol}</strong> registrado! Disponível no armário.`,'ok')
+    el('rec-prot').value='';el('rec-obs').value=''
+    if(btn){btn.disabled=false;btn.textContent='Confirmar recebimento no setor'}
+  }catch(e){
+    setAlert('rec-alert',e.message)
+    if(btn){btn.disabled=false;btn.textContent='Confirmar recebimento no setor'}
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: ARMÁRIO
+// ═══════════════════════════════════════════════════════
+async function pageArmario(){
+  const arm=await DB.armario()
+  const isAnalyst=S.user.role==='analyst'
+  const body=`
+  <div class="alert alert-info" style="margin-bottom:13px">Processos recebidos no setor aguardando analista.${isAnalyst?' Clique em <strong>Assumir</strong> para iniciar sua análise.':''}</div>
+  ${arm.length===0?`<div class="card"><div class="empty">Nenhum processo no armário no momento.</div></div>`
+  :arm.map(p=>`
+    <div class="arm-item">
+      <div style="flex:1;min-width:0">
+        <div class="fca gap8" style="margin-bottom:4px">
+          <span class="mono" style="font-size:14px;font-weight:500">${p.protocol}</span>
+          ${sbadge(p.current_status)}
+        </div>
+        <div style="font-size:13px;font-weight:500">${p.requester}</div>
+        <div style="font-size:12px;color:var(--text3)">${p.type}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">Entrada: ${fmtD(p.created_at)} · Recebido: ${fmtD(p.updated_at)}</div>
+      </div>
+      <div class="fca gap6" style="flex-shrink:0">
+        <button class="btn btn-outline btn-sm" onclick="go('proc-detail',{id:'${p.id}'})">Ver</button>
+        ${isAnalyst?`<button class="btn btn-amber btn-sm" onclick="doAssumirArmario('${p.id}')">Assumir</button>`:''}
+      </div>
+    </div>`).join('')}`
+  return shell(body,`Armário do Setor (${arm.length})`,`<span style="font-size:12px;color:var(--text3)">${arm.length} disponíve${arm.length!==1?'is':'l'}</span>`)
+}
+
+async function doAssumirArmario(id){
+  try{
+    await DB.updateProcess(id,{assigned_to:S.user.id})
+    await DB.addMovement(id,'EM_ANALISE',`Processo assumido por ${S.user.name}.`)
+    await DB.log('ASSUMIDO',`Processo`,`Analista: ${S.user.name}`)
+    go('proc-detail',{id})
+  }catch(e){alert('Erro: '+e.message)}
+}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: CONSULTA
+// ═══════════════════════════════════════════════════════
+async function pageConsulta(){
+  const q=S.params.cq||''
+  const analysts=await DB.getAnalysts()
+  let resultHtml=''
+
+  if(q){
+    const found=await DB.getProcesses('admin','',{search:q})
+    if(!found.length){
+      resultHtml=`<div class="card"><div class="empty">Nenhum processo encontrado para "<strong>${q}</strong>".</div></div>`
+    }else{
+      resultHtml=`<div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:13px 17px 0"><div class="card-title" style="margin-bottom:0">${found.length} resultado(s)</div></div>
+        <table class="rt">
+          <thead><tr><th>Protocolo</th><th>Requerente</th><th>Com quem está</th><th>Status</th></tr></thead>
+          <tbody>
+          ${found.map(p=>{
+            const an=p.analyst_name
+            return`<tr class="clickable" onclick="go('proc-detail',{id:'${p.id}'})">
+              <td data-label="Protocolo"><span class="mono">${p.protocol}</span></td>
+              <td data-label="Requerente" style="font-size:12px">${p.requester}</td>
+              <td data-label="Com quem">${an?`<span style="font-weight:500">${an}</span>`:sbadge(p.current_status)}</td>
+              <td data-label="Status">${sbadge(p.current_status)}</td>
+            </tr>`
+          }).join('')}
+          </tbody>
+        </table>
+      </div>`
+    }
+  }else{
+    // Lista por analista
+    const allProcs=await DB.getProcesses('admin','')
+    resultHtml=`<div style="font-size:12px;color:var(--text3);margin-bottom:12px">Clique no analista para ver seus processos ativos.</div>`
+    +analysts.map(a=>{
+      const mine=allProcs.filter(p=>p.assigned_to===a.id&&!['FINALIZADO','ARQUIVADO'].includes(p.current_status))
+      return`<div class="consulta-card">
+        <div class="fca gap10" style="cursor:pointer" onclick="this.nextElementSibling.classList.toggle('open')">
+          ${avatar(a,34)}
+          <div style="flex:1"><div style="font-size:14px;font-weight:500">${a.name}</div><div style="font-size:12px;color:var(--text3)">${mine.length} processo(s) ativo(s)</div></div>
+          <span class="badge ${mine.length>0?'b-amber':'b-gray'}">${mine.length}</span>
+        </div>
+        <div class="consulta-body">
+          ${mine.length===0?`<div style="font-size:12px;color:var(--text3);padding:10px 0;border-top:.5px solid var(--border);margin-top:10px">Nenhum processo ativo.</div>`
+          :`<div style="margin-top:10px;border-top:.5px solid var(--border)">`+mine.map(p=>`
+            <div class="fca gap10" style="padding:9px 0;border-bottom:.5px solid var(--border);cursor:pointer" onclick="go('proc-detail',{id:'${p.id}'})">
+              <span class="mono" style="font-weight:500;min-width:110px">${p.protocol}</span>
+              <span style="font-size:12px;flex:1;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.requester}</span>
+              ${sbadge(p.current_status)}
+            </div>`).join('')+'</div>'}
+        </div>
+      </div>`
+    }).join('')
+  }
+
+  const body=`
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">Buscar processo</div>
+    <div class="fca gap8">
+      <input id="cq-input" type="text" placeholder="Protocolo ou requerente..." value="${q}" style="flex:1;font-family:monospace;font-size:15px" onkeydown="if(event.key==='Enter')doConsulta()">
+      <button class="btn btn-primary" onclick="doConsulta()">${IC.search}</button>
+      ${q?`<button class="btn btn-outline" onclick="S.params.cq='';go('consulta')">Limpar</button>`:''}
+    </div>
+  </div>
+  ${resultHtml}`
+  return shell(body,'Consultar — Com quem está o processo')
+}
+
+function doConsulta(){S.params.cq=el('cq-input')?.value.trim();go('consulta')}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: PENDING
+// ═══════════════════════════════════════════════════════
+async function pagePending(){
+  const r=S.user.role
+  const procs=await DB.pending(r)
+  const title=r==='secretary'?'Aguardando assinatura':'Aguardando ação do Protocolo'
+  const body=`
+  <div class="alert alert-warn" style="margin-bottom:13px">
+    ${r==='secretary'?'Processos encaminhados pelo analista aguardando sua assinatura.':'Processos que retornaram ao protocolo e aguardam sua ação.'}
+  </div>
+  ${procs.length===0?`<div class="card"><div class="empty">Nenhum processo aguardando.</div></div>`
+  :`<div class="card" style="padding:0;overflow:hidden"><table class="rt">
+    <thead><tr><th>Protocolo</th><th>Requerente</th><th>Status</th><th class="hide-mobile">Analista</th><th class="hide-mobile">Desde</th></tr></thead>
+    <tbody>
+    ${procs.map(p=>`<tr class="clickable" onclick="go('proc-detail',{id:'${p.id}'})">
+      <td data-label="Protocolo"><span class="mono">${p.protocol}</span></td>
+      <td data-label="Requerente" style="font-size:12px">${p.requester}</td>
+      <td data-label="Status">${sbadge(p.current_status)}</td>
+      <td data-label="Analista" class="hide-mobile" style="font-size:12px">${p.analyst_name||'—'}</td>
+      <td data-label="Desde" class="hide-mobile" style="font-size:11px;color:var(--text3)">${fmtD(p.updated_at)}</td>
+    </tr>`).join('')}
+    </tbody>
+  </table></div>`}`
+  return shell(body,title)
+}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: PRODUCTIVITY
+// ═══════════════════════════════════════════════════════
+async function pageProductivity(){
+  const isAnalyst=S.user.role==='analyst'
+  if(isAnalyst){
+    const procs=await DB.getProcesses('analyst',S.user.id)
+    const mine=procs.filter(p=>p.assigned_to===S.user.id)
+    const fin=mine.filter(p=>p.current_status==='FINALIZADO').length
+    const pct=mine.length?Math.round(fin/mine.length*100):0
+    const body=`
+    <div class="fca gap10" style="margin-bottom:16px">
+      ${avatar(S.user,42)}<div><div style="font-size:15px;font-weight:500">${S.user.name}</div><div style="font-size:12px;color:var(--text3)">Estatísticas individuais</div></div>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi-label">Total atribuídos</div><div class="kpi-value" style="color:var(--blue)">${mine.length}</div></div>
+      <div class="kpi"><div class="kpi-label">Finalizados</div><div class="kpi-value" style="color:var(--green)">${fin}</div></div>
+      <div class="kpi"><div class="kpi-label">Em andamento</div><div class="kpi-value" style="color:var(--amber)">${mine.filter(p=>!['FINALIZADO','ARQUIVADO'].includes(p.current_status)).length}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Taxa de conclusão — ${pct}%</div>
+      <div class="pbar" style="height:10px;margin-bottom:8px"><div class="pfill" style="width:${pct}%;background:${pct>=70?'#3B6D11':pct>=40?'#BA7517':'#A32D2D'}"></div></div>
+    </div>
+    <div class="card" style="background:#f0fdf4;border-color:#25D36644">
+      <div class="card-title" style="color:#1a6b3a;margin-bottom:10px">Enviar para WhatsApp</div>
+      <p style="font-size:12px;color:#1a6b3a;margin-bottom:12px;opacity:.85">Gere um resumo dos seus processos e envie direto para o WhatsApp da secretaria.</p>
+      <div class="fca gap8" style="flex-wrap:wrap">
+        <button id="wa-analyst-btn" class="btn btn-full" onclick="waAnalyst()" style="background:#25D366;color:#fff;border:none;gap:8px;margin-bottom:8px">${waIcon()} Enviar resumo completo</button>
+        <button class="btn btn-outline btn-full" onclick="waAnalystCustom()" style="gap:8px">${waIcon()} Escolher processos</button>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:13px 17px 0"><div class="card-title" style="margin-bottom:0">Meus processos</div></div>
+      <table class="rt">
+        <thead><tr><th>Protocolo</th><th>Requerente</th><th>Status</th><th class="hide-mobile">Movim.</th></tr></thead>
+        <tbody>${mine.length?mine.map(p=>`<tr class="clickable" onclick="go('proc-detail',{id:'${p.id}'})">
+          <td data-label="Protocolo"><span class="mono">${p.protocol}</span></td>
+          <td data-label="Requerente" style="font-size:12px">${p.requester}</td>
+          <td data-label="Status">${sbadge(p.current_status)}</td>
+          <td data-label="Movim." class="hide-mobile" style="font-size:12px;color:var(--text3)">${p.movement_count||0}</td>
+        </tr>`).join(''):`<tr><td colspan="4"><div class="empty">Nenhum processo.</div></td></tr>`}
+        </tbody>
+      </table>
+    </div>`
+    return shell(body,'Minha produtividade')
+  }
+
+  const stats=await DB.productivity()
+  const maxT=stats.length?Number(stats[0].total_processes):1
+  onAfterRender(()=>{
+    const c=el('pChart');if(!c||!stats.length)return
+    if(S.charts.prod)S.charts.prod.destroy()
+    S.charts.prod=new Chart(c,{type:'bar',
+      data:{labels:stats.map(a=>a.name.split(' ')[0]),datasets:[
+        {label:'Total',data:stats.map(a=>Number(a.total_processes)),backgroundColor:stats.map(a=>avcol(a.username).fg),borderRadius:4,borderSkipped:false},
+        {label:'Finalizados',data:stats.map(a=>Number(a.finalized)),backgroundColor:stats.map(a=>avcol(a.username).fg+'44'),borderRadius:4,borderSkipped:false},
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+        scales:{x:{ticks:{font:{size:11}},grid:{display:false}},y:{ticks:{font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'},beginAtZero:true}}}})
+  })
+  const body=`
+  <div class="two-col">
+    <div class="card"><div class="card-title">Processos por analista</div><div class="chart-wrap" style="height:230px"><canvas id="pChart"></canvas></div></div>
+    <div class="card">
+      <div class="card-title">Ranking</div>
+      ${stats.map((a,i)=>`<div style="margin-bottom:12px">
+        <div class="fca gap8" style="margin-bottom:4px">
+          <span style="font-size:10px;color:var(--text3);width:16px">${i+1}</span>
+          ${avatar({username:a.username,initials:a.initials,name:a.name},24)}
+          <span style="font-size:13px;flex:1">${a.name}</span>
+          <span style="font-size:14px;font-weight:500">${a.total_processes}</span>
+        </div>
+        <div style="margin-left:26px"><div class="pbar"><div class="pfill" style="width:${Math.round(Number(a.total_processes)/maxT*100)}%;background:${avcol(a.username).fg}"></div></div></div>
+      </div>`).join('')}
+    </div>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:13px 17px 0"><div class="card-title" style="margin-bottom:0">Detalhado</div></div>
+    <table class="rt">
+      <thead><tr><th>Analista</th><th style="text-align:center">Total</th><th style="text-align:center">Finalizados</th><th style="text-align:center">Ativos</th><th style="text-align:center">Pareceres</th><th>Conclusão</th></tr></thead>
+      <tbody>${stats.map(a=>{const pct=Number(a.completion_rate)
+        return`<tr><td><div class="fca gap8">${avatar({username:a.username,initials:a.initials,name:a.name},26)}<span>${a.name}</span></div></td>
+          <td data-label="Total" style="text-align:center;font-weight:500">${a.total_processes}</td>
+          <td data-label="Finalizados" style="text-align:center"><span class="badge b-green">${a.finalized}</span></td>
+          <td data-label="Ativos" style="text-align:center"><span class="badge b-amber">${a.active}</span></td>
+          <td data-label="Pareceres" style="text-align:center">${a.pareceres}</td>
+          <td data-label="Conclusão"><span class="badge ${pct>=70?'b-green':pct>=40?'b-amber':'b-red'}">${pct}%</span></td>
+        </tr>`}).join('')}
+      </tbody>
+    </table>
+  </div>`
+  // Add WA button for secretary/admin at top
+  const waSecBtn = `<div class="card" style="background:#f0fdf4;border-color:#25D36644;margin-bottom:16px">
+    <div class="card-title" style="color:#1a6b3a;margin-bottom:10px">Enviar relatório para WhatsApp</div>
+    <p style="font-size:12px;color:#1a6b3a;margin-bottom:12px;opacity:.85">Gere um relatório completo de toda a equipe com processos em andamento, armário e aguardando assinatura.</p>
+    <button id="wa-sec-btn" class="btn btn-full" onclick="waSecretary()" style="background:#25D366;color:#fff;border:none;gap:8px">\${waIcon()} Enviar relatório geral para WhatsApp</button>
+  </div>`
+  const bodyWithWa = waSecBtn + body
+  return shell(bodyWithWa,'Produtividade da equipe')
+}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: USERS
+// ═══════════════════════════════════════════════════════
+async function pageUsers(){
+  const fr=S.params.fr||''
+  const users=await DB.getUsers(fr?{role:fr}:{})
+  const body=`
+  <div class="fca gap8" style="margin-bottom:12px;flex-wrap:wrap">
+    <select onchange="S.params.fr=this.value;go('users',S.params)" style="width:auto">
+      <option value="">Todos os perfis</option>
+      ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}"${fr===k?' selected':''}>${v.label}</option>`).join('')}
+    </select>
+    <span style="font-size:12px;color:var(--text3);margin-left:auto">${users.length} usuário(s)</span>
+    <button class="btn btn-primary btn-sm" onclick="modalUser(null)">+ Novo usuário</button>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="rt">
+      <thead><tr><th>Nome</th><th>Login</th><th>Perfil</th><th class="hide-mobile">Status</th><th>Ações</th></tr></thead>
+      <tbody>
+      ${users.map(u=>`<tr>
+        <td data-label="Nome"><div class="fca gap8">${avatar(u,26)}<span style="font-weight:500">${u.name}</span></div></td>
+        <td data-label="Login"><span class="mono">${u.username}</span></td>
+        <td data-label="Perfil"><span class="badge ${ROLES[u.role]?.badge||'b-gray'}">${ROLES[u.role]?.label||u.role}</span></td>
+        <td data-label="Status" class="hide-mobile">${u.active?'<span class="badge b-green">Ativo</span>':'<span class="badge b-red">Inativo</span>'}</td>
+        <td data-label="Ações"><div class="fca gap6">
+          <button class="btn btn-outline btn-sm" onclick="modalUser('${u.id}')">Editar</button>
+          <button class="btn btn-outline btn-sm" onclick="modalPwd('${u.id}')">🔑</button>
+          <button class="btn btn-outline btn-sm" onclick="toggleUser('${u.id}','${!u.active}')"${u.username==='admin'?' disabled':''}>${u.active?'Desativar':'Ativar'}</button>
+        </div></td>
+      </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`
+  return shell(body,'Usuários do sistema')
+}
+
+function modalUser(userId){
+  showModal(`<div class="modal">
+    <div class="modal-head"><span class="modal-title">${userId?'Editar usuário':'Novo usuário'}</span><button class="btn-x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="fg full"><label>Nome completo *</label><input id="m-name"></div>
+        <div class="fg"><label>Login *</label><input id="m-user"${userId?' readonly':''}></div>
+        <div class="fg"><label>${userId?'Nova senha (vazio=manter)':'Senha *'}</label><input id="m-pwd" type="text"></div>
+        <div class="fg"><label>Perfil *</label><select id="m-role">${Object.entries(ROLES).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('')}</select></div>
+        <div class="fg"><label>E-mail</label><input id="m-email" type="email"></div>
+        <div class="fg"><label>Iniciais (2-3 letras)</label><input id="m-init" maxlength="3" style="text-transform:uppercase"></div>
+      </div>
+      <div id="m-alert" style="margin-top:10px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveUser('${userId||''}')">Salvar</button>
+    </div>
+  </div>`)
+  if(userId) loadUserModal(userId)
+}
+
+async function loadUserModal(id){
+  const users=await DB.getUsers()
+  const u=users.find(x=>x.id===id);if(!u)return
+  el('m-name').value=u.name||''
+  el('m-user').value=u.username||''
+  el('m-email').value=u.email||''
+  el('m-init').value=u.initials||''
+  el('m-role').value=u.role||'analyst'
+}
+
+async function saveUser(userId){
+  const name=el('m-name')?.value.trim()
+  const username=el('m-user')?.value.trim().toLowerCase()
+  const pwd=el('m-pwd')?.value.trim()
+  const role=el('m-role')?.value
+  const email=el('m-email')?.value.trim()
+  const initials=el('m-init')?.value.trim().toUpperCase()
+  if(!name||!username||!role){setAlert('m-alert','Campos obrigatórios não preenchidos.');return}
+  if(!userId&&!pwd){setAlert('m-alert','Informe uma senha para o novo usuário.');return}
+  try{
+    const u={name,username,role,email,initials:initials||name.substr(0,2).toUpperCase(),active:true}
+    if(pwd) u.password_hash=pwd
+    if(userId) u.id=userId
+    await DB.saveUser(u)
+    await DB.log(userId?'USUARIO_EDITADO':'USUARIO_CRIADO',name,`Perfil: ${ROLES[role]?.label}`)
+    closeModal();go('users',S.params)
+  }catch(e){setAlert('m-alert','Erro: '+e.message)}
+}
+
+function modalPwd(userId){
+  showModal(`<div class="modal">
+    <div class="modal-head"><span class="modal-title">Redefinir senha</span><button class="btn-x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="fg" style="margin-bottom:10px"><label>Nova senha *</label><input id="rpwd" type="text" placeholder="Mínimo 4 caracteres"></div>
+      <div id="rp-alert"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="doResetPwd('${userId}')">Redefinir</button>
+    </div>
+  </div>`)
+}
+async function doResetPwd(id){
+  const pwd=el('rpwd')?.value.trim()
+  if(!pwd||pwd.length<4){setAlert('rp-alert','Mínimo 4 caracteres.');return}
+  try{
+    await DB.saveUser({id,password_hash:pwd})
+    await DB.log('SENHA_RESET','Usuário','Redefinida pelo admin')
+    closeModal();go('users',S.params)
+  }catch(e){setAlert('rp-alert','Erro: '+e.message)}
+}
+async function toggleUser(id,active){
+  try{
+    await DB.saveUser({id,active:active==='true'})
+    go('users',S.params)
+  }catch(e){alert('Erro: '+e.message)}
+}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: AUDIT
+// ═══════════════════════════════════════════════════════
+async function pageAudit(){
+  const entries=await DB.getAudit()
+  const AL={LOGIN:'b-green',LOGOUT:'b-gray',CADASTRO:'b-blue',MOVIMENTO:'b-purple',ASSUMIDO:'b-amber',ATRIBUIÇÃO:'b-teal',USUARIO_CRIADO:'b-blue',USUARIO_EDITADO:'b-amber',USUARIO_ATIVADO:'b-green',USUARIO_DESATIVADO:'b-red',SENHA_RESET:'b-amber',SISTEMA_INICIADO:'b-gray'}
+  const body=`
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:13px 17px 0"><div class="card-title" style="margin-bottom:0">Trilha de auditoria — últimas ${entries.length} ações</div></div>
+    <table class="rt">
+      <thead><tr><th>Data/Hora</th><th>Usuário</th><th>Ação</th><th class="hide-mobile">Alvo</th><th class="hide-mobile">Detalhes</th></tr></thead>
+      <tbody>${entries.map(a=>`<tr>
+        <td data-label="Data/Hora" style="font-size:11px;color:var(--text3);white-space:nowrap">${fmtDate(a.created_at)}</td>
+        <td data-label="Usuário" style="font-size:12px;font-weight:500">${a.user_name||'—'}</td>
+        <td data-label="Ação"><span class="badge ${AL[a.action]||'b-gray'}" style="font-size:10px">${a.action}</span></td>
+        <td data-label="Alvo" class="hide-mobile" style="font-size:12px;color:var(--text2)">${a.target||'—'}</td>
+        <td data-label="Detalhes" class="hide-mobile" style="font-size:11px;color:var(--text3)">${a.details||'—'}</td>
+      </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`
+  return shell(body,'Auditoria — Trilha completa')
+}
+
+// ═══════════════════════════════════════════════════════
+// WHATSAPP — Resumo para envio
+// ═══════════════════════════════════════════════════════
+
+function fmtWaDate(){
+  return new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
+}
+
+// Resumo individual do analista
+async function waAnalystReport(userId, userName){
+  const procs = await DB.getProcesses('analyst', userId)
+  const mine  = procs.filter(p => p.assigned_to === userId)
+
+  const finHoje = mine.filter(p => p.current_status === 'FINALIZADO')
+  const emAnalise = mine.filter(p => p.current_status === 'EM_ANALISE')
+  const encAssin  = mine.filter(p => p.current_status === 'ENC_ASSINATURA')
+  const parecer   = mine.filter(p => p.current_status === 'PARECER')
+  const devProt   = mine.filter(p => p.current_status === 'DEV_PROTOCOLO')
+  const aguardReq = mine.filter(p => p.current_status === 'DEV_REQUERENTE')
+  const anuencia  = mine.filter(p => p.current_status === 'ANUENCIA')
+
+  const lines = []
+  lines.push(`📋 *RELATÓRIO — ${userName.toUpperCase()}*`)
+  lines.push(`📅 ${fmtWaDate()}`)
+  lines.push('')
+
+  function block(emoji, title, list){
+    if(!list.length) return
+    lines.push(`${emoji} *${title}*`)
+    list.forEach(p => lines.push(`  • ${p.protocol} — ${p.requester} _(${p.type})_`))
+    lines.push('')
+  }
+
+  block('✅','FINALIZADOS',finHoje)
+  block('🔄','EM ANÁLISE (minha mesa)',emAnalise)
+  block('✍️','ENCAMINHADO PARA ASSINATURA',encAssin)
+  block('📝','PARECER EMITIDO — aguard. requerente',parecer)
+  block('↩️','DEVOLVIDO AO PROTOCOLO',devProt)
+  block('⏳','AGUARDANDO RETORNO DO REQUERENTE',aguardReq)
+  block('📌','ANUÊNCIA EMITIDA',anuencia)
+
+  lines.push(`📊 *Total na mesa: ${mine.filter(p=>!['FINALIZADO','ARQUIVADO'].includes(p.current_status)).length} processo(s) ativos*`)
+  lines.push(`_Enviado pelo SisGestão_`)
+
+  return lines.join('\n')
+}
+
+// Resumo consolidado — secretaria vê todos
+async function waSecretaryReport(){
+  const analysts = await DB.getAnalysts()
+  const allProcs = await DB.getProcesses('admin','')
+
+  const lines = []
+  lines.push(`📋 *RELATÓRIO GERAL DA EQUIPE*`)
+  lines.push(`📅 ${fmtWaDate()}`)
+  lines.push('')
+
+  // Pendentes assinatura — prioridade máxima
+  const assinar = allProcs.filter(p => p.current_status === 'ENC_ASSINATURA')
+  if(assinar.length){
+    lines.push(`✍️ *AGUARDANDO SUA ASSINATURA (${assinar.length})*`)
+    assinar.forEach(p => {
+      const an = p.analyst_name ? ` [${p.analyst_name.split(' ')[0]}]` : ''
+      lines.push(`  • ${p.protocol} — ${p.requester}${an}`)
+    })
+    lines.push('')
+  }
+
+  // Por analista
+  analysts.forEach(a => {
+    const mine = allProcs.filter(p => p.assigned_to === a.id && !['FINALIZADO','ARQUIVADO'].includes(p.current_status))
+    if(!mine.length) return
+    lines.push(`👤 *${a.name.toUpperCase()}* — ${mine.length} processo(s)`)
+    mine.forEach(p => {
+      const s = SM[p.current_status]?.label || p.current_status
+      lines.push(`  • ${p.protocol} — ${p.requester}`)
+      lines.push(`    _${s}_`)
+    })
+    lines.push('')
+  })
+
+  // Armário
+  const arm = allProcs.filter(p => p.current_status === 'RECEBIDO_SETOR' && !p.assigned_to)
+  if(arm.length){
+    lines.push(`📦 *NO ARMÁRIO SEM ANALISTA (${arm.length})*`)
+    arm.forEach(p => lines.push(`  • ${p.protocol} — ${p.requester}`))
+    lines.push('')
+  }
+
+  // Totais
+  const fin = allProcs.filter(p => p.current_status === 'FINALIZADO').length
+  const active = allProcs.filter(p => !['FINALIZADO','ARQUIVADO'].includes(p.current_status)).length
+  lines.push(`📊 *RESUMO GERAL*`)
+  lines.push(`  • Em andamento: ${active} processo(s)`)
+  lines.push(`  • Finalizados: ${fin} processo(s)`)
+  lines.push(`  • No armário: ${arm.length} processo(s)`)
+  lines.push('')
+  lines.push(`_Enviado pelo SisGestão_`)
+
+  return lines.join('\n')
+}
+
+function openWa(text){
+  const encoded = encodeURIComponent(text)
+  window.open(`https://wa.me/?text=${encoded}`, '_blank')
+}
+
+async function waAnalyst(){
+  const btn = el('wa-analyst-btn')
+  if(btn){ btn.disabled=true; btn.textContent='Gerando...' }
+  try{
+    const text = await waAnalystReport(S.user.id, S.user.name)
+    openWa(text)
+  }catch(e){ alert('Erro ao gerar resumo: '+e.message) }
+  finally{ if(btn){ btn.disabled=false; btn.innerHTML=waIcon()+' Enviar resumo para WhatsApp' } }
+}
+
+async function waSecretary(){
+  const btn = el('wa-sec-btn')
+  if(btn){ btn.disabled=true; btn.textContent='Gerando...' }
+  try{
+    const text = await waSecretaryReport()
+    openWa(text)
+  }catch(e){ alert('Erro ao gerar resumo: '+e.message) }
+  finally{ if(btn){ btn.disabled=false; btn.innerHTML=waIcon()+' Enviar relatório geral para WhatsApp' } }
+}
+
+// Botão para analista escolher quais processos incluir
+async function waAnalystCustom(){
+  const procs = await DB.getProcesses('analyst', S.user.id)
+  const mine  = procs.filter(p => p.assigned_to === S.user.id && !['ARQUIVADO'].includes(p.current_status))
+
+  showModal(`<div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">Selecionar processos para WhatsApp</span>
+      <button class="btn-x" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text3);margin-bottom:13px">Selecione os processos que deseja incluir no resumo:</p>
+      <div style="margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;margin-bottom:10px">
+          <input type="checkbox" id="wa-all" onchange="toggleAllWa(this.checked)" style="width:auto"> Selecionar todos
+        </label>
+        <hr>
+      </div>
+      ${mine.map(p=>`
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 0;border-bottom:.5px solid var(--border);text-transform:none;letter-spacing:0;font-weight:400;font-size:13px">
+          <input type="checkbox" class="wa-proc-check" value="${p.id}|${p.protocol}|${p.requester}|${p.type}|${p.current_status}" style="width:auto;flex-shrink:0">
+          <div style="flex:1;min-width:0">
+            <div style="font-family:monospace;font-size:12px;font-weight:500">${p.protocol}</div>
+            <div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.requester}</div>
+          </div>
+          ${sbadge(p.current_status)}
+        </label>`).join('')}
+      ${mine.length===0?`<div class="empty">Nenhum processo ativo.</div>`:''}
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-success" onclick="waSendCustom()" style="background:#25D366;border:none">${waIcon()} Enviar selecionados</button>
+    </div>
+  </div>`)
+}
+
+function toggleAllWa(checked){
+  document.querySelectorAll('.wa-proc-check').forEach(cb => cb.checked = checked)
+}
+
+function waSendCustom(){
+  const checks = [...document.querySelectorAll('.wa-proc-check:checked')]
+  if(!checks.length){ alert('Selecione pelo menos um processo.'); return }
+
+  const lines = []
+  lines.push(`📋 *PROCESSOS — ${S.user.name.toUpperCase()}*`)
+  lines.push(`📅 ${fmtWaDate()}`)
+  lines.push('')
+
+  // Agrupa por status
+  const groups = {}
+  checks.forEach(cb => {
+    const [id,protocol,requester,type,status] = cb.value.split('|')
+    if(!groups[status]) groups[status] = []
+    groups[status].push({protocol,requester,type})
+  })
+
+  const statusOrder = ['EM_ANALISE','ENC_ASSINATURA','PARECER','ANUENCIA','DEV_PROTOCOLO','DEV_REQUERENTE','FINALIZADO']
+  const emoji = {EM_ANALISE:'🔄',ENC_ASSINATURA:'✍️',PARECER:'📝',ANUENCIA:'📌',DEV_PROTOCOLO:'↩️',DEV_REQUERENTE:'⏳',FINALIZADO:'✅'}
+
+  statusOrder.forEach(s => {
+    if(!groups[s]) return
+    lines.push(`${emoji[s]||'•'} *${SM[s]?.label||s}*`)
+    groups[s].forEach(p => lines.push(`  • ${p.protocol} — ${p.requester}`))
+    lines.push('')
+  })
+
+  // Status não mapeados
+  Object.keys(groups).filter(s=>!statusOrder.includes(s)).forEach(s=>{
+    lines.push(`• *${SM[s]?.label||s}*`)
+    groups[s].forEach(p => lines.push(`  • ${p.protocol} — ${p.requester}`))
+    lines.push('')
+  })
+
+  lines.push(`_Enviado pelo SisGestão_`)
+  closeModal()
+  openWa(lines.join('\n'))
+}
+
+function waIcon(){
+  return`<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.122.558 4.112 1.532 5.836L.044 23.956l6.292-1.648A11.945 11.945 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.894 0-3.662-.523-5.17-1.432l-.37-.221-3.735.979.995-3.638-.242-.374A9.96 9.96 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg>`
+}
+
+// ═══════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════
+if(S.user) go('dashboard')
+else go('login')
+</script>
+</body>
+</html>
