@@ -1,18 +1,40 @@
 import { supabase } from './supabaseClient'
 
+function expandTerms(query) {
+  const match = query.match(/(artigo|art\.?)\s*(\d+)/i)
+  if (match) {
+    const num = match[2]
+    return `${query} OR "artigo ${num}" OR "art. ${num}" OR "art ${num}"`
+  }
+  return query
+}
+
 export async function askRAG(question) {
   try {
-    // 1. Busca textual de contexto no Supabase
-    const { data: chunks, error } = await supabase
+    // 1. Busca textual de contexto no Supabase (com expansão de termos)
+    let { data: chunks, error } = await supabase
       .from('rag_chunks')
       .select('content, metadata')
-      .textSearch('fts', question, {
+      .textSearch('fts', expandTerms(question), {
         type: 'websearch',
         config: 'portuguese'
       })
       .limit(6)
 
     if (error) console.error('Erro na busca textual (RAG):', error)
+
+    // Fallback: se não achar nada pelo tsvector, busca por ILIKE exato no content
+    if (!chunks || chunks.length === 0) {
+      const { data: fallbackChunks } = await supabase
+        .from('rag_chunks')
+        .select('content, metadata')
+        .ilike('content', `%${question}%`)
+        .limit(6)
+
+      if (fallbackChunks && fallbackChunks.length > 0) {
+        chunks = fallbackChunks
+      }
+    }
 
     let contextText = ''
     if (chunks && chunks.length > 0) {
@@ -27,7 +49,7 @@ export async function askRAG(question) {
 Você ajudará a responder dúvidas sobre processos, legislações, pareceres técnicos e diretrizes urbanas municipais.
 Instruções:
 - Baseie-se SEMPRE nas informações recuperadas do contexto para responder.
-- Caso não haja informações suficientes no contexto, informe que não encontrou referências exatas mas responda com base nas melhores práticas do direito urbanístico.
+- Caso não haja informações suficientes no contexto, responda com base nas melhores práticas do direito urbanístico.
 - Seja sempre profissional, claro, estruturado e técnico.`
 
     const promptWithContext = `--- CONTEXTO RECUPERADO (RAG) ---
