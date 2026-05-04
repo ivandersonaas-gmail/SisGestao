@@ -20,6 +20,7 @@ export function Dashboard() {
     recent: []
   });
   const [loading, setLoading] = useState(true);
+  const [counts, setCounts] = useState({});
 
   const isAnalyst = user.role === 'analyst';
 
@@ -36,46 +37,14 @@ export function Dashboard() {
         const active = myProcs.filter(p => !['FINALIZADO','ARQUIVADO','ANUENCIA_SOLO','ASSINADO','DISP_RETIRADA'].includes(p.current_status)).length;
         const fin = myProcs.filter(p => ['FINALIZADO','ANUENCIA_SOLO','ASSINADO','DISP_RETIRADA'].includes(p.current_status)).length;
         
-        const counts = {};
-        STATUSES.forEach(s => counts[s.id] = 0);
-        myProcs.forEach(p => counts[p.current_status] = (counts[p.current_status] || 0) + 1);
+        const countsObj = {};
+        STATUSES.forEach(s => countsObj[s.id] = 0);
+        myProcs.forEach(p => countsObj[p.current_status] = (countsObj[p.current_status] || 0) + 1);
         
         const recent = [...myProcs].sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at)).slice(0, 6);
 
+        setCounts(countsObj);
         setStats({ total, active, fin, armLen, recent });
-
-        // Build Chart
-        if (canvasRef.current) {
-          if (chartInstance.current) {
-             chartInstance.current.destroy();
-          }
-          const labels = [];
-          const data = [];
-          const colors = [];
-          STATUSES.forEach(s => {
-            if (counts[s.id] > 0) {
-              labels.push(s.label);
-              data.push(counts[s.id]);
-              colors.push(CHART_COLORS[s.id]);
-            }
-          });
-
-          chartInstance.current = new Chart(canvasRef.current, {
-            type: 'doughnut',
-            data: {
-              labels,
-              datasets: [{ data, backgroundColor: colors, borderWidth: 2 }]
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              cutout: '60%',
-              plugins: {
-                legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 9, padding: 8 } }
-              }
-            }
-          });
-        }
       } catch (err) {
         console.error("Dashboard error:", err);
       } finally {
@@ -84,13 +53,46 @@ export function Dashboard() {
     }
 
     loadData();
+  }, [user]);
 
+  useEffect(() => {
+    if (!loading && canvasRef.current && Object.keys(counts).length > 0) {
+      if (chartInstance.current) {
+        chartInstance.current.destroy();
+      }
+      const labels = [];
+      const data = [];
+      const colors = [];
+      STATUSES.forEach(s => {
+        if (counts[s.id] > 0) {
+          labels.push(s.label);
+          data.push(counts[s.id]);
+          colors.push(CHART_COLORS[s.id]);
+        }
+      });
+
+      chartInstance.current = new Chart(canvasRef.current, {
+        type: 'doughnut',
+        data: {
+          labels,
+          datasets: [{ data, backgroundColor: colors, borderWidth: 2 }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '60%',
+          plugins: {
+            legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 9, padding: 8 } }
+          }
+        }
+      });
+    }
     return () => {
       if (chartInstance.current) {
         chartInstance.current.destroy();
       }
     };
-  }, [user]);
+  }, [loading, counts]);
 
   if (loading) {
     return <div className="loading-wrap"><div className="spinner"></div><span>Carregando Dashboard...</span></div>;
