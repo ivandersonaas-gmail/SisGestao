@@ -19,76 +19,125 @@ function expandTerms(query) {
 export async function askRAG(question) {
   try {
     const keywords = extractKeywords(question);
+    const mainKw = keywords.find(k => k.length > 4);
 
-    // Passo A: Busca usando a pergunta inteira expandida (Padrão SGLU)
-    let { data: chunks, error } = await supabase
+    // Identificação de dígitos/números de artigos citados na pergunta
+    const digits = question.match(/\b\d+\b/g);
+
+    // Armazenamento unificado de chunks candidatos para ranqueamento
+    const candidateChunksMap = new Map();
+
+    // 1. Técnica A: Busca via Full-Text Search (pergunta inteira expandida)
+    const { data: chunksA } = await supabase
       .from('rag_chunks')
       .select('id, content, metadata, chunk_index, document_id')
       .textSearch('fts', expandTerms(question), {
         type: 'websearch',
         config: 'portuguese'
       })
-      .limit(10);
+      .limit(40);
 
-    if (error) console.error('Erro na busca inicial:', error);
+    if (chunksA) {
+      chunksA.forEach(c => candidateChunksMap.set(c.id, c));
+    }
 
-    // Passo B: Busca flexível por OR com palavras-chave
-    if (!chunks || chunks.length === 0) {
-      const broadSearch = keywords.join(' OR ');
-      const { data: flexChunks, error: flexErr } = await supabase
+    // 2. Técnica B: Busca via Full-Text Search flexível por palavras-chave
+    const broadSearch = keywords.join(' OR ');
+    const { data: chunksB } = await supabase
+      .from('rag_chunks')
+      .select('id, content, metadata, chunk_index, document_id')
+      .textSearch('fts', broadSearch, {
+        type: 'websearch',
+        config: 'portuguese'
+      })
+      .limit(40);
+
+    if (chunksB) {
+      chunksB.forEach(c => candidateChunksMap.set(c.id, c));
+    }
+
+    // 3. Técnica C: Busca exata via ILIKE para o principal termo
+    if (mainKw) {
+      const { data: chunksC } = await supabase
         .from('rag_chunks')
         .select('id, content, metadata, chunk_index, document_id')
-        .textSearch('fts', broadSearch, {
-          type: 'websearch',
-          config: 'portuguese'
-        })
-        .limit(10);
+        .ilike('content', `%${mainKw}%`)
+        .limit(25);
 
-      if (flexErr) console.error('Erro na busca flexível:', flexErr);
-      if (flexChunks && flexChunks.length > 0) {
-        chunks = flexChunks;
+      if (chunksC) {
+        chunksC.forEach(c => candidateChunksMap.set(c.id, c));
       }
     }
 
-    // Passo C: Fallback com ILIKE
-    if (!chunks || chunks.length === 0) {
-      const mainKeyword = keywords[0] || question;
-      const { data: fallbackChunks } = await supabase
-        .from('rag_chunks')
-        .select('id, content, metadata, chunk_index, document_id')
-        .ilike('content', `%${mainKeyword}%`)
-        .limit(10);
+    // 4. Técnica D: Busca específica por números se houver dígitos (ex: 81 para Art. 81)
+    if (digits && digits.length > 0) {
+      for (const num of digits) {
+        const { data: chunksD } = await supabase
+          .from('rag_chunks')
+          .select('id, content, metadata, chunk_index, document_id')
+          .ilike('content', `%${num}%`)
+          .limit(20);
 
-      if (fallbackChunks && fallbackChunks.length > 0) {
-        chunks = fallbackChunks;
+        if (chunksD) {
+          chunksD.forEach(c => candidateChunksMap.set(c.id, c));
+        }
       }
     }
 
-    // Algoritmo de Ranqueamento de Relevância por Palavras-Chave (Simulação Semântica)
-    if (chunks && chunks.length > 0) {
-      chunks.forEach(chunk => {
+    let candidateChunks = Array.from(candidateChunksMap.values());
+
+    // 5. Algoritmo Avançado de Ranqueamento de Relevância
+    if (candidateChunks && candidateChunks.length > 0) {
+      candidateChunks.forEach(chunk => {
         let score = 0;
         const txt = (chunk.content || '').toLowerCase();
+
+        // Critério 1: Proximidade e contagem de palavras-chave da busca
         for (const kw of keywords) {
           const regex = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
           const matches = txt.match(regex);
-          if (matches) score += matches.length;
+          if (matches) score += matches.length * 3;
         }
-        // Bônus para trechos conceituais e de definição
-        if (/considera-se|entende-se|definição|conceito|objetivo|compreende/i.test(txt)) {
-          score += 5;
+
+        // Critério 2: Menção exata a artigos caso o usuário tenha digitado um número
+        if (digits && digits.length > 0) {
+          for (const num of digits) {
+            if (new RegExp(`art\\.?\\s*${num}\\b|artigo\\s*${num}\\b`, 'i').test(txt)) {
+              score += 35; // Altíssimo bônus para o artigo exato
+            } else if (new RegExp(`\\b${num}\\b`).test(txt)) {
+              score += 10; // Bônus por conter o número
+            }
+          }
         }
+
+        // Critério 3: Identificação de conceitos e definições
+        const isDefinitionQuery = /definição|definir|conceito|o que é|entende-se|considera-se|descrição|descreve/i.test(question);
+        if (isDefinitionQuery) {
+          if (/considera-se|entende-se|conceito|definição|objetivo|compreende/i.test(txt)) {
+            score += 20;
+          }
+          if (mainKw && new RegExp(`considera-se\\s+.*${mainKw}`, 'i').test(txt)) {
+            score += 25; // Super bônus por definição direta
+          }
+        }
+
+        // Critério 4: Relevância adicional por palavras importantes
+        if (/petrolina|plano diretor/i.test(txt)) {
+          score += 2;
+        }
+
         chunk.score = score;
       });
 
-      chunks.sort((a, b) => b.score - a.score);
-      chunks = chunks.slice(0, 3); // Fica com os 3 chunks de maior relevância
+      // Ordena por score decrescente
+      candidateChunks.sort((a, b) => b.score - a.score);
+      candidateChunks = candidateChunks.slice(0, 4); // Fica com os 4 melhores chunks
     }
 
-    // 2. Busca dos blocos vizinhos para trazer o artigo completo sem cortes
+    // 6. Busca dos blocos vizinhos para trazer o artigo completo sem cortes
     const allChunks = [];
-    if (chunks && chunks.length > 0) {
-      for (const chunk of chunks) {
+    if (candidateChunks && candidateChunks.length > 0) {
+      for (const chunk of candidateChunks) {
         if (chunk.document_id && typeof chunk.chunk_index === 'number') {
           const { data: neighbors } = await supabase
             .from('rag_chunks')
@@ -109,7 +158,7 @@ export async function askRAG(question) {
       }
     }
 
-    // 3. Remove blocos duplicados
+    // 7. Remove blocos duplicados preservando a ordem
     const uniqueChunks = [];
     const seen = new Set();
     for (const c of allChunks) {
@@ -128,7 +177,7 @@ export async function askRAG(question) {
       }).join('\n\n');
     }
 
-    // 4. Constrói o Prompt Mestre
+    // 8. Constrói o Prompt Mestre
     const systemPrompt = `Você é um consultor técnico urbanístico especialista e analista do sistema SisGestão.
 Você ajudará a responder dúvidas sobre processos, legislações, pareceres técnicos e diretrizes urbanas municipais.
 Instruções:
@@ -142,7 +191,7 @@ ${contextText || 'Nenhuma informação legislativa ou documento específico enco
 
 Pergunta do usuário: ${question}`;
 
-    // 5. Chamada direta para a API do Gemini
+    // 9. Chamada direta para a API do Gemini
     const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
     if (!GEMINI_API_KEY) {
       throw new Error('A chave de API do Gemini (VITE_GEMINI_API_KEY) não foi configurada.');
