@@ -4,7 +4,7 @@ function extractKeywords(query) {
   // Remove stop words comuns e pontuações
   const stopwords = ['qual', 'é', 'a', 'o', 'que', 'diga', 'define', 'significa', 'de', 'do', 'da', 'em', 'um', 'uma', 'para', 'com', 'os', 'as'];
   const cleaned = query.toLowerCase().replace(/[^\w\s]/g, ' ');
-  const words = cleaned.split(/\s+/).filter(w => w.length > 2 && !stopwords.includes(w));
+  const words = cleaned.split(/\s+/).filter(w => (w.length > 2 || /\d+/.test(w)) && !stopwords.includes(w));
   return words.length > 0 ? words : [query];
 }
 
