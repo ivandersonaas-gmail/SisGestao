@@ -37,7 +37,7 @@ ${contextText || 'Nenhuma informação legislativa ou documento específico enco
 Pergunta do usuário: ${question}`
 
     // 3. Chamada direta para a API do Gemini
-    const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
+    const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyBOIAKkn7hWAZl2xZlw6O5Pm7faD48Px5g'
     if (!GEMINI_API_KEY) {
       throw new Error('A chave de API do Gemini (VITE_GEMINI_API_KEY) não foi configurada.')
     }
