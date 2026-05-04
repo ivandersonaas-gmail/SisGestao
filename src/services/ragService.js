@@ -11,40 +11,75 @@ function expandTerms(query) {
 
 export async function askRAG(question) {
   try {
-    // 1. Busca textual de contexto no Supabase (com expansão de termos)
+    // 1. Busca textual de contexto no Supabase
     let { data: chunks, error } = await supabase
       .from('rag_chunks')
-      .select('content, metadata')
+      .select('id, content, metadata, chunk_index, document_id')
       .textSearch('fts', expandTerms(question), {
         type: 'websearch',
         config: 'portuguese'
       })
-      .limit(6)
+      .limit(3)
 
     if (error) console.error('Erro na busca textual (RAG):', error)
 
-    // Fallback: se não achar nada pelo tsvector, busca por ILIKE exato no content
+    // Fallback: busca por ILIKE se tsvector estiver vazio
     if (!chunks || chunks.length === 0) {
       const { data: fallbackChunks } = await supabase
         .from('rag_chunks')
-        .select('content, metadata')
+        .select('id, content, metadata, chunk_index, document_id')
         .ilike('content', `%${question}%`)
-        .limit(6)
+        .limit(3)
 
       if (fallbackChunks && fallbackChunks.length > 0) {
         chunks = fallbackChunks
       }
     }
 
-    let contextText = ''
+    // 2. Busca dos blocos vizinhos (Vizinhos de Chunk) para trazer o artigo completo!
+    const allChunks = []
     if (chunks && chunks.length > 0) {
-      contextText = chunks.map((c, i) => {
+      for (const chunk of chunks) {
+        if (chunk.document_id && typeof chunk.chunk_index === 'number') {
+          const { data: neighbors } = await supabase
+            .from('rag_chunks')
+            .select('id, content, metadata, chunk_index, document_id')
+            .eq('document_id', chunk.document_id)
+            .gte('chunk_index', Math.max(0, chunk.chunk_index - 1))
+            .lte('chunk_index', chunk.chunk_index + 1)
+            .order('chunk_index', { ascending: true })
+
+          if (neighbors && neighbors.length > 0) {
+            allChunks.push(...neighbors)
+          } else {
+            allChunks.push(chunk)
+          }
+        } else {
+          allChunks.push(chunk)
+        }
+      }
+    }
+
+    // 3. Remove duplicados
+    const uniqueChunks = []
+    const seen = new Set()
+    for (const c of allChunks) {
+      const key = `${c.document_id}_${c.chunk_index}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        uniqueChunks.push(c)
+      }
+    }
+
+    let contextText = ''
+    if (uniqueChunks && uniqueChunks.length > 0) {
+      contextText = uniqueChunks.map((c, i) => {
         const file = c.metadata?.source_file || 'Documento'
         return `[Trecho ${i + 1} de ${file}]:\n${c.content}`
       }).join('\n\n')
     }
 
-    // 2. Constrói o Prompt Mestre
+    // 4. Constrói o Prompt Mestre
     const systemPrompt = `Você é um consultor técnico urbanístico especialista e analista do sistema SisGestão.
 Você ajudará a responder dúvidas sobre processos, legislações, pareceres técnicos e diretrizes urbanas municipais.
 Instruções:
@@ -58,7 +93,7 @@ ${contextText || 'Nenhuma informação legislativa ou documento específico enco
 
 Pergunta do usuário: ${question}`
 
-    // 3. Chamada direta para a API do Gemini
+    // 5. Chamada direta para a API do Gemini
     const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
     if (!GEMINI_API_KEY) {
       throw new Error('A chave de API do Gemini (VITE_GEMINI_API_KEY) não foi configurada.')
@@ -90,7 +125,7 @@ Pergunta do usuário: ${question}`
     return {
       answer,
       grounded: !!contextText,
-      sources: chunks ? [...new Set(chunks.map(c => c.metadata?.source_file).filter(Boolean))] : []
+      sources: uniqueChunks ? [...new Set(uniqueChunks.map(c => c.metadata?.source_file).filter(Boolean))] : []
     }
   } catch (err) {
     console.error('Erro no askRAG:', err)
