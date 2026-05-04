@@ -1,5 +1,7 @@
+const BACKEND_URL = import.meta.env.MODE === 'development' ? '/api' : 'https://sisgestao.onrender.com'
+
 export async function askRAG(question) {
-  const response = await fetch('/api/ask', {
+  const response = await fetch(`${BACKEND_URL}/ask`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question })

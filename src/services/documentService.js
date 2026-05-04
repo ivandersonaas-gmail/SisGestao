@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient'
 
-const BACKEND_URL = '/api'
+const BACKEND_URL = import.meta.env.MODE === 'development' ? '/api' : 'https://sisgestao.onrender.com'
 
 export async function generateEmbedding(text) {
   const response = await fetch(`${BACKEND_URL}/embed`, {
