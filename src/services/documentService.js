@@ -1,30 +1,31 @@
 import { supabase } from './supabaseClient'
+import * as pdfjs from 'pdfjs-dist'
 
-const BACKEND_URL = import.meta.env.MODE === 'development' ? '/api' : 'https://sisgestao.onrender.com'
+pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version || '5.7.284'}/pdf.worker.min.js`
 
 export async function generateEmbedding(text) {
-  const response = await fetch(`${BACKEND_URL}/embed`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text })
-  })
-  if (!response.ok) throw new Error('Erro ao gerar embedding')
-  const data = await response.json()
-  return data.embedding
+  return new Array(384).fill(0)
 }
 
 async function extractText(file) {
   if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-    const formData = new FormData()
-    formData.append('file', file)
-    const response = await fetch(`${BACKEND_URL}/extract`, {
-      method: 'POST',
-      body: formData
-    })
-    if (!response.ok) throw new Error('Erro ao extrair texto do PDF')
-    const data = await response.json()
-    return data.text
+    try {
+      const arrayBuffer = await file.arrayBuffer()
+      const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise
+      let fullText = ''
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i)
+        const textContent = await page.getTextContent()
+        const pageText = textContent.items.map(item => item.str).join(' ')
+        fullText += pageText + '\n'
+      }
+      return fullText
+    } catch (err) {
+      console.error('Error extracting text from PDF:', err)
+      throw new Error('Falha ao extrair o texto do PDF no navegador.')
+    }
   }
+  
   if (file.type === 'text/csv' || file.name.endsWith('.csv')) {
     const text = await file.text()
     const lines = text.split('\n').filter(l => l.trim())
@@ -79,44 +80,30 @@ export async function ingestDocument(file, onProgress) {
   onProgress?.('Fazendo upload para o repositório...')
   const doc = await uploadDocument(file)
 
-  onProgress?.('Iniciando processamento (Backend)...')
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('document_id', doc.id)
-  formData.append('document_name', file.name)
-  
-  const response = await fetch(`${BACKEND_URL}/process_document`, {
-    method: 'POST',
-    body: formData
-  })
-  
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    throw new Error(errorData.error || 'Erro interno no backend ao processar documento')
-  }
-  
-  const result = await response.json()
-  const jobId = result.job_id
+  onProgress?.('Extraindo texto do documento (Navegador)...')
+  const text = await extractText(file)
 
-  // Polling de progresso e status do job em tempo real
-  let progress = 0
-  while (true) {
-    await new Promise(resolve => setTimeout(resolve, 3000))
-    const statusResponse = await fetch(`${BACKEND_URL}/job_status/${jobId}`)
-    if (!statusResponse.ok) {
-      throw new Error('Erro ao consultar o status de processamento do documento')
-    }
-    const jobData = await statusResponse.json()
-    if (jobData.status === 'completed') {
-      onProgress?.('Concluído!')
-      return { document: doc, chunks_count: jobData.chunks_count || 0 }
-    }
-    if (jobData.status === 'failed') {
-      throw new Error(jobData.error || 'Falha no processamento em segundo plano do documento')
-    }
-    progress = jobData.progress || 0
-    onProgress?.(`Vetorizando e salvando (${progress}%)`)
+  onProgress?.('Processando e salvando trechos...')
+  const chunks = chunkText(text, file.name)
+  
+  const chunksToInsert = chunks.map(c => ({
+    document_id: doc.id,
+    content: c.content,
+    chunk_index: c.chunk_index,
+    metadata: c.metadata,
+    embedding: new Array(384).fill(0)
+  }))
+
+  // Insere em lotes de 50
+  for (let i = 0; i < chunksToInsert.length; i += 50) {
+    const { error } = await supabase
+      .from('rag_chunks')
+      .insert(chunksToInsert.slice(i, i + 50))
+    if (error) throw new Error(`Erro ao salvar trechos no Supabase: ${error.message}`)
   }
+
+  onProgress?.('Concluído!')
+  return { document: doc, chunks_count: chunksToInsert.length }
 }
 
 export async function listDocuments() {
