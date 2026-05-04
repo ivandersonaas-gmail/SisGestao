@@ -203,16 +203,19 @@ def process_document():
         job_id = str(uuid.uuid4())
         jobs_status[job_id] = {"status": "processing", "progress": 0}
 
-        # Dispara processamento em segundo plano usando Thread (equivalente a FastAPI BackgroundTasks no Flask)
-        thread = threading.Thread(target=processar_pdf_background, args=(temp_path, doc_id, doc_name, job_id))
-        thread.start()
+        # Processamento síncrono para total controle da memória RAM
+        processar_pdf_background(temp_path, doc_id, doc_name, job_id)
+
+        # Chama garbage collection para liberar recursos
+        import gc
+        gc.collect()
 
         return jsonify({
             "status": "processing",
-            "message": "Processamento do PDF iniciado em segundo plano.",
+            "message": "Processamento do PDF concluído com sucesso.",
             "job_id": job_id,
             "document_id": doc_id
-        }), 202
+        }), 200
 
     except Exception as e:
         return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
