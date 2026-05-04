@@ -1,7 +1,7 @@
 import { supabase } from './supabaseClient'
 
 function extractKeywords(query) {
-  const stopwords = ['qual', 'é', 'a', 'o', 'que', 'diga', 'define', 'significa', 'de', 'do', 'da', 'em', 'um', 'uma', 'para', 'com', 'os', 'as'];
+  const stopwords = ['qual', 'é', 'a', 'o', 'que', 'diga', 'define', 'significa', 'de', 'do', 'da', 'em', 'um', 'uma', 'para', 'com', 'os', 'as', 'existe', 'algum', 'tipo', 'sobre', 'diga', 'artigo', 'descreve', 'descreve-o', 'compõem'];
   const cleaned = query.toLowerCase().replace(/[^\w\s]/g, ' ');
   const words = cleaned.split(/\s+/).filter(w => (w.length > 2 || /\d+/.test(w)) && !stopwords.includes(w));
   return words.length > 0 ? words : [query];
@@ -18,7 +18,9 @@ function expandTerms(query) {
 
 export async function askRAG(question) {
   try {
-    // Passo A: Busca exata usando a pergunta inteira expandida (Original do SGLU)
+    const keywords = extractKeywords(question);
+
+    // Passo A: Busca usando a pergunta inteira expandida (Padrão SGLU)
     let { data: chunks, error } = await supabase
       .from('rag_chunks')
       .select('id, content, metadata, chunk_index, document_id')
@@ -26,13 +28,12 @@ export async function askRAG(question) {
         type: 'websearch',
         config: 'portuguese'
       })
-      .limit(3);
+      .limit(10);
 
     if (error) console.error('Erro na busca inicial:', error);
 
-    // Passo B: Se não achar nada, faz a busca por OR com palavras-chave
+    // Passo B: Busca flexível por OR com palavras-chave
     if (!chunks || chunks.length === 0) {
-      const keywords = extractKeywords(question);
       const broadSearch = keywords.join(' OR ');
       const { data: flexChunks, error: flexErr } = await supabase
         .from('rag_chunks')
@@ -41,7 +42,7 @@ export async function askRAG(question) {
           type: 'websearch',
           config: 'portuguese'
         })
-        .limit(3);
+        .limit(10);
 
       if (flexErr) console.error('Erro na busca flexível:', flexErr);
       if (flexChunks && flexChunks.length > 0) {
@@ -49,19 +50,39 @@ export async function askRAG(question) {
       }
     }
 
-    // Passo C: Último recurso (Fallback com ILIKE)
+    // Passo C: Fallback com ILIKE
     if (!chunks || chunks.length === 0) {
-      const keywords = extractKeywords(question);
       const mainKeyword = keywords[0] || question;
       const { data: fallbackChunks } = await supabase
         .from('rag_chunks')
         .select('id, content, metadata, chunk_index, document_id')
         .ilike('content', `%${mainKeyword}%`)
-        .limit(3);
+        .limit(10);
 
       if (fallbackChunks && fallbackChunks.length > 0) {
         chunks = fallbackChunks;
       }
+    }
+
+    // Algoritmo de Ranqueamento de Relevância por Palavras-Chave (Simulação Semântica)
+    if (chunks && chunks.length > 0) {
+      chunks.forEach(chunk => {
+        let score = 0;
+        const txt = (chunk.content || '').toLowerCase();
+        for (const kw of keywords) {
+          const regex = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+          const matches = txt.match(regex);
+          if (matches) score += matches.length;
+        }
+        // Bônus para trechos conceituais e de definição
+        if (/considera-se|entende-se|definição|conceito|objetivo|compreende/i.test(txt)) {
+          score += 5;
+        }
+        chunk.score = score;
+      });
+
+      chunks.sort((a, b) => b.score - a.score);
+      chunks = chunks.slice(0, 3); // Fica com os 3 chunks de maior relevância
     }
 
     // 2. Busca dos blocos vizinhos para trazer o artigo completo sem cortes
