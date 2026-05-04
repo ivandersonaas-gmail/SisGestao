@@ -1,7 +1,6 @@
 import { supabase } from './supabaseClient'
 
 function extractKeywords(query) {
-  // Remove stop words comuns e pontuações
   const stopwords = ['qual', 'é', 'a', 'o', 'que', 'diga', 'define', 'significa', 'de', 'do', 'da', 'em', 'um', 'uma', 'para', 'com', 'os', 'as'];
   const cleaned = query.toLowerCase().replace(/[^\w\s]/g, ' ');
   const words = cleaned.split(/\s+/).filter(w => (w.length > 2 || /\d+/.test(w)) && !stopwords.includes(w));
@@ -19,33 +18,26 @@ function expandTerms(query) {
 
 export async function askRAG(question) {
   try {
-    // 1. Extração de palavras-chave
-    const keywords = extractKeywords(question);
-    
-    // Constrói padrão estrito (TODAS as palavras precisam estar no trecho)
-    const strictPattern = keywords.join(' & ');
-    
-    // Constrói padrão flexível (QUALQUER uma das palavras no trecho - Busca Inteligente)
-    const flexiblePattern = keywords.join(' | ');
-
-    // Passo A: Busca estrita no Supabase
+    // Passo A: Busca exata usando a pergunta inteira expandida (Original do SGLU)
     let { data: chunks, error } = await supabase
       .from('rag_chunks')
       .select('id, content, metadata, chunk_index, document_id')
-      .textSearch('fts', expandTerms(strictPattern), {
+      .textSearch('fts', expandTerms(question), {
         type: 'websearch',
         config: 'portuguese'
       })
       .limit(3);
 
-    if (error) console.error('Erro na busca estrita:', error);
+    if (error) console.error('Erro na busca inicial:', error);
 
-    // Passo B: Se não achar nada, faz a busca flexível (Busca Inteligente)
+    // Passo B: Se não achar nada, faz a busca por OR com palavras-chave
     if (!chunks || chunks.length === 0) {
+      const keywords = extractKeywords(question);
+      const broadSearch = keywords.join(' OR ');
       const { data: flexChunks, error: flexErr } = await supabase
         .from('rag_chunks')
         .select('id, content, metadata, chunk_index, document_id')
-        .textSearch('fts', expandTerms(flexiblePattern), {
+        .textSearch('fts', broadSearch, {
           type: 'websearch',
           config: 'portuguese'
         })
@@ -59,6 +51,7 @@ export async function askRAG(question) {
 
     // Passo C: Último recurso (Fallback com ILIKE)
     if (!chunks || chunks.length === 0) {
+      const keywords = extractKeywords(question);
       const mainKeyword = keywords[0] || question;
       const { data: fallbackChunks } = await supabase
         .from('rag_chunks')
@@ -109,7 +102,7 @@ export async function askRAG(question) {
     let contextText = '';
     if (uniqueChunks && uniqueChunks.length > 0) {
       contextText = uniqueChunks.map((c, i) => {
-        const file = c.metadata?.source_file || 'Documento';
+        const file = c.metadata?.source_file || 'Documento'
         return `[Trecho ${i + 1} de ${file}]:\n${c.content}`;
       }).join('\n\n');
     }
