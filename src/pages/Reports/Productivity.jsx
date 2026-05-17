@@ -61,14 +61,18 @@ export function Productivity() {
         if(!localNotesMap[m.process_id] && m.notes) localNotesMap[m.process_id] = m.notes;
       });
 
-      const finHoje = myProcs.filter(p => ['FINALIZADO','ANUENCIA_SOLO','ASSINADO','DISP_RETIRADA'].includes(p.current_status));
-      const emAnalise = myProcs.filter(p => !['FINALIZADO','ANUENCIA_SOLO','ASSINADO','DISP_RETIRADA','ARQUIVADO','PARECER','DEV_PROTOCOLO','DEV_REQUERENTE','ENC_ASSINATURA','ANUENCIA'].includes(p.current_status));
+      const finHoje = myProcs.filter(p => ['ASSINADO','DISP_RETIRADA','FINALIZADO','ARQUIVADO','ANUENCIA_SOLO'].includes(p.current_status));
+      const emAnalise = myProcs.filter(p => !['ASSINADO','DISP_RETIRADA','FINALIZADO','ARQUIVADO','ANUENCIA_SOLO','PARECER','DEV_PROTOCOLO','DEV_REQUERENTE','ENC_ASSINATURA','ANUENCIA','LIC_COND','ATO_APR','V2_ATO','V2_COND'].includes(p.current_status));
       const encAssin  = myProcs.filter(p => p.current_status === 'ENC_ASSINATURA');
       const parecer   = myProcs.filter(p => p.current_status === 'PARECER');
       const devProt   = myProcs.filter(p => p.current_status === 'DEV_PROTOCOLO');
       const aguardReq = myProcs.filter(p => p.current_status === 'DEV_REQUERENTE');
       const anuencia  = myProcs.filter(p => p.current_status === 'ANUENCIA');
       const anuenciaSolo = myProcs.filter(p => p.current_status === 'ANUENCIA_SOLO');
+      const licCond = myProcs.filter(p => p.current_status === 'LIC_COND');
+      const atoApr = myProcs.filter(p => p.current_status === 'ATO_APR');
+      const v2Ato = myProcs.filter(p => p.current_status === 'V2_ATO');
+      const v2Cond = myProcs.filter(p => p.current_status === 'V2_COND');
 
       const devProtParecer = [];
       const devProtAnuencia = [];
@@ -111,8 +115,12 @@ export function Productivity() {
       block('⏳','AGUARDANDO RETORNO DO REQUERENTE',aguardReq);
       block('📌','ANUÊNCIA EMITIDA',anuencia);
       block('📌','ANUÊNCIA DE USO DE SOLO EMITIDA',anuenciaSolo);
+      block('📌','LICENÇA DE IMPLANTAÇÃO EMITIDA',licCond);
+      block('📌','ATO DE APROVAÇÃO EMITIDO',atoApr);
+      block('📌','2ª VIA ATO DE APROVAÇÃO',v2Ato);
+      block('📌','2ª VIA LICENÇA DE IMPLANTAÇÃO',v2Cond);
 
-      lines.push(`📊 *Total na mesa: ${myProcs.filter(p=>!['FINALIZADO','ARQUIVADO','ANUENCIA_SOLO','ASSINADO','DISP_RETIRADA'].includes(p.current_status)).length} processo(s) ativos*`);
+      lines.push(`📊 *Total na mesa: ${myProcs.filter(p=>!['FINALIZADO','ARQUIVADO','ANUENCIA_SOLO','ASSINADO','DISP_RETIRADA','LIC_COND','ATO_APR','V2_ATO','V2_COND'].includes(p.current_status)).length} processo(s) ativos*`);
       lines.push(`_Enviado pelo SisGestão_`);
 
       openWa(lines.join('\n'));
@@ -186,8 +194,8 @@ export function Productivity() {
       if(!groups[s]) groups[s] = [];
       groups[s].push({ protocol: p.protocol, requester: p.requester, type: p.type, note: notesMap[p.id] });
     });
-    const statusOrder = ['EM_ANALISE','ENC_ASSINATURA','PARECER','ANUENCIA','ANUENCIA_SOLO','DEV_PROTOCOLO_PARECER','DEV_PROTOCOLO_ANUENCIA','DEV_PROTOCOLO_ANUENCIA_SOLO','DEV_PROTOCOLO','DEV_REQUERENTE','FINALIZADO'];
-    const emoji = {EM_ANALISE:'🔄',ENC_ASSINATURA:'✍️',PARECER:'📝',ANUENCIA:'📌',ANUENCIA_SOLO:'📌',DEV_PROTOCOLO_PARECER:'↩️',DEV_PROTOCOLO_ANUENCIA:'↩️',DEV_PROTOCOLO_ANUENCIA_SOLO:'↩️',DEV_PROTOCOLO:'↩️',DEV_REQUERENTE:'⏳',FINALIZADO:'✅'};
+    const statusOrder = ['EM_ANALISE','ENC_ASSINATURA','PARECER','ANUENCIA','ANUENCIA_SOLO','LIC_COND','ATO_APR','V2_ATO','V2_COND','DEV_PROTOCOLO_PARECER','DEV_PROTOCOLO_ANUENCIA','DEV_PROTOCOLO_ANUENCIA_SOLO','DEV_PROTOCOLO','DEV_REQUERENTE','FINALIZADO'];
+    const emoji = {EM_ANALISE:'🔄',ENC_ASSINATURA:'✍️',PARECER:'📝',ANUENCIA:'📌',ANUENCIA_SOLO:'📌',LIC_COND:'📌',ATO_APR:'📌',V2_ATO:'📌',V2_COND:'📌',DEV_PROTOCOLO_PARECER:'↩️',DEV_PROTOCOLO_ANUENCIA:'↩️',DEV_PROTOCOLO_ANUENCIA_SOLO:'↩️',DEV_PROTOCOLO:'↩️',DEV_REQUERENTE:'⏳',FINALIZADO:'✅'};
     const labelMap = {DEV_PROTOCOLO_PARECER:'DEVOLVIDO AO PROTOCOLO COM PARECER', DEV_PROTOCOLO_ANUENCIA:'DEVOLVIDO AO PROTOCOLO COM ANUÊNCIA', DEV_PROTOCOLO_ANUENCIA_SOLO:'DEVOLVIDO AO PROTOCOLO COM ANUÊNCIA DE SOLO'};
     statusOrder.forEach(s => {
       if(!groups[s]) return;
@@ -230,8 +238,8 @@ export function Productivity() {
         arm.forEach(p => lines.push(`  • ${p.protocol} — ${p.requester}`));
         lines.push('');
       }
-      const fin = allProcs.filter(p => ['FINALIZADO','ANUENCIA_SOLO','ASSINADO','DISP_RETIRADA'].includes(p.current_status)).length;
-      const active = allProcs.filter(p => !['FINALIZADO','ARQUIVADO','ANUENCIA_SOLO','ASSINADO','DISP_RETIRADA'].includes(p.current_status)).length;
+      const fin = allProcs.filter(p => ['ASSINADO','DISP_RETIRADA','FINALIZADO','ARQUIVADO','ANUENCIA_SOLO'].includes(p.current_status)).length;
+      const active = allProcs.filter(p => !['ASSINADO','DISP_RETIRADA','FINALIZADO','ARQUIVADO','ANUENCIA_SOLO'].includes(p.current_status)).length;
       lines.push(`📊 *RESUMO GERAL*`);
       lines.push(`  • Em andamento: ${active} processo(s)`);
       lines.push(`  • Finalizados / Anuências: ${fin} processo(s)`);
@@ -258,8 +266,8 @@ export function Productivity() {
 
   const kpis = isAnalyst ? [
     { label: 'TOTAL ATRIBUÍDOS', value: myProcs.length, color: 'var(--blue)' },
-    { label: 'FINALIZADOS', value: myProcs.filter(p => ['FINALIZADO','ANUENCIA_SOLO','ASSINADO','DISP_RETIRADA'].includes(p.current_status)).length, color: 'var(--green)' },
-    { label: 'EM ANDAMENTO', value: myProcs.filter(p => !['FINALIZADO','ARQUIVADO','ANUENCIA_SOLO','ASSINADO','DISP_RETIRADA'].includes(p.current_status)).length, color: 'var(--amber)' }
+    { label: 'FINALIZADOS', value: myProcs.filter(p => ['ASSINADO','DISP_RETIRADA','FINALIZADO','ARQUIVADO','ANUENCIA_SOLO'].includes(p.current_status)).length, color: 'var(--green)' },
+    { label: 'EM ANDAMENTO', value: myProcs.filter(p => !['ASSINADO','DISP_RETIRADA','FINALIZADO','ARQUIVADO','ANUENCIA_SOLO'].includes(p.current_status)).length, color: 'var(--amber)' }
   ] : [];
 
   const pct = isAnalyst && myProcs.length ? Math.round((kpis[1].value / myProcs.length) * 100) : 0;

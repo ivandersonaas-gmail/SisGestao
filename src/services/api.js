@@ -46,7 +46,7 @@ export const api = {
     if(filters.assignedTo) q = q.eq('analyst_username', filters.assignedTo)
     if(filters.search){
       const s = filters.search
-      q = q.or(`protocol.ilike.%${s}%,requester.ilike.%${s}%`)
+      q = q.or(`protocol.ilike."%${s}%",requester.ilike."%${s}%"`)
     }
     const {data,error} = await q.order('updated_at', {ascending:false})
     if(error) throw error
@@ -145,7 +145,8 @@ export const api = {
       if(error) throw error
       return data
     } else {
-      const {data,error} = await supabase.from('process_types').insert(pt).select().single()
+      const { id, ...payload } = pt;
+      const {data,error} = await supabase.from('process_types').insert(payload).select().single()
       if(error) throw error
       return data
     }
@@ -167,18 +168,27 @@ export const api = {
       if(error) throw error
       return data
     } else {
-      const {data,error} = await supabase.from('fiscais').insert(f).select().single()
+      const { id, ...payload } = f;
+      const {data,error} = await supabase.from('fiscais').insert(payload).select().single()
       if(error) throw error
       return data
     }
   },
 
-  async armario(){
-    const {data,error} = await supabase.from('processes_view').select('*')
-      .eq('current_status','RECEBIDO_SETOR').is('assigned_to',null)
-      .order('updated_at',{ascending:false})
-    if(error) throw error
-    return data||[]
+  async armario(filters = {}){
+    let q = supabase.from('processes_view').select('*')
+      .eq('current_status','RECEBIDO_SETOR').is('assigned_to',null);
+    
+    if (filters.startDate) {
+      q = q.gte('created_at', filters.startDate + 'T00:00:00');
+    }
+    if (filters.endDate) {
+      q = q.lte('created_at', filters.endDate + 'T23:59:59');
+    }
+
+    const {data,error} = await q.order('updated_at',{ascending:false});
+    if(error) throw error;
+    return data||[];
   },
 
   async pending(role){
@@ -214,7 +224,8 @@ export const api = {
       if(error) throw error
       return data
     } else {
-      const {data,error} = await supabase.from('restricoes').insert(r).select().single()
+      const { id, ...payload } = r;
+      const {data,error} = await supabase.from('restricoes').insert(payload).select().single()
       if(error) throw error
       return data
     }
@@ -234,8 +245,8 @@ export const api = {
   },
 
   async getAdvancedReports(startIso, endIso, isAnalyst, analystId) {
-    let q = supabase.from('movements').select('*, process:processes_view(protocol, requester, type)')
-      .in('status', ['PARECER', 'ANUENCIA', 'ANUENCIA_SOLO', 'ENC_ASSINATURA'])
+    let q = supabase.from('movements').select('*, process:processes_view(protocol, requester, type, current_status, assigned_to, latitude, longitude, report_observation)')
+      .in('status', ['PARECER', 'ANUENCIA', 'ANUENCIA_SOLO', 'ENC_ASSINATURA', 'LIC_COND', 'ATO_APR', 'V2_ATO', 'V2_COND', 'ASSINADO'])
       .gte('created_at', startIso)
       .lte('created_at', endIso);
       
@@ -247,15 +258,40 @@ export const api = {
     if(error) throw error;
     return data || [];
   },
-
-  async log(action, target, details, user){
+  async log(type, category, action, user) {
     const payload = {
-      user_id: user?.id || null,
-      user_name: user?.name || 'Sistema',
-      action,
-      target,
-      details
-    }
+      user_id: user.id,
+      user_name: user.name,
+      type,
+      category,
+      action
+    };
     await supabase.from('audit_log').insert(payload).then(()=>{})
+  },
+
+  async unassignProcess(id, notes, user){
+    const {error} = await supabase.from('processes').update({
+      assigned_to: null,
+      current_status: 'RECEBIDO_SETOR'
+    }).eq('id', id)
+    if(error) throw error
+    await this.addMovement(id, 'RECEBIDO_SETOR', notes || 'Processo devolvido ao armário do setor.', user)
+    await this.log('DESATRIBUIR', `Processo`, `Devolvido ao armário por ${user.name}`, user)
+  },
+
+  // Métodos para o Tour 360
+  async getTourScenes(processId) {
+    const { data, error } = await supabase.from('process_tours').select('*').eq('process_id', processId).order('created_at');
+    if (error) throw error;
+    return data || [];
+  },
+  async saveTourScene(scene) {
+    const { data, error } = await supabase.from('process_tours').insert(scene).select().single();
+    if (error) throw error;
+    return data;
+  },
+  async deleteTourScene(id) {
+    const { error } = await supabase.from('process_tours').delete().eq('id', id);
+    if (error) throw error;
   }
 };

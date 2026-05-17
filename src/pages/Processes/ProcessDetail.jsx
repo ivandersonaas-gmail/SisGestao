@@ -6,6 +6,7 @@ import { FLOW, SM } from '../../config/constants';
 import { Badge } from '../../components/UI/Badge';
 import { Avatar } from '../../components/UI/Avatar';
 import { Modal } from '../../components/UI/Modal';
+import { Tour360 } from '../../components/UI/Tour360';
 
 export function ProcessDetail() {
   const { id } = useParams();
@@ -22,6 +23,8 @@ export function ProcessDetail() {
   // Modals state
   const [isEditProcOpen, setIsEditProcOpen] = useState(false);
   const [isEditMovOpen, setIsEditMovOpen] = useState(false);
+  const [isUnassignOpen, setIsUnassignOpen] = useState(false);
+  const [isTourOpen, setIsTourOpen] = useState(false);
   const [selectedMov, setSelectedMov] = useState(null);
   
   // Form states
@@ -48,6 +51,20 @@ export function ProcessDetail() {
   const [emNotes, setEmNotes] = useState('');
   const [editFile, setEditFile] = useState(null);
   const [emAlert, setEmAlert] = useState('');
+
+  const [unNotes, setUnNotes] = useState('');
+  const [unAlert, setUnAlert] = useState('');
+  const [unLoading, setUnLoading] = useState(false);
+
+  // Georeferencing states
+  const [isGeoOpen, setIsGeoOpen] = useState(false);
+  const [geoNotes, setGeoNotes] = useState('');
+  const [tempLat, setTempLat] = useState(null);
+  const [tempLng, setTempLng] = useState(null);
+  const [geoLoading, setGeoLoading] = useState(false);
+  const [geoAlert, setGeoAlert] = useState('');
+  const [mapReady, setMapReady] = useState(false);
+  const [mapSearch, setMapSearch] = useState('');
 
   const r = user.role;
   const uid = user.id;
@@ -94,6 +111,114 @@ export function ProcessDetail() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  useEffect(() => {
+    if (proc) {
+      setGeoNotes(proc.report_observation || '');
+      setTempLat(proc.latitude || null);
+      setTempLng(proc.longitude || null);
+    }
+  }, [proc]);
+
+  useEffect(() => {
+    if (!isGeoOpen) {
+      setMapReady(false);
+      return;
+    }
+
+    const loadLeaflet = () => {
+      return new Promise((resolve) => {
+        if (window.L) return resolve();
+        
+        if (!document.getElementById('leaflet-css')) {
+          const link = document.createElement('link');
+          link.id = 'leaflet-css';
+          link.rel = 'stylesheet';
+          link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+          document.head.appendChild(link);
+        }
+
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        script.onload = () => resolve();
+        document.body.appendChild(script);
+      });
+    };
+
+    loadLeaflet().then(() => {
+      setMapReady(true);
+    });
+  }, [isGeoOpen]);
+
+  useEffect(() => {
+    if (!mapReady || !isGeoOpen || !window.L) return;
+
+    const initialLat = tempLat || -3.78992;
+    const initialLng = tempLng || -38.58892;
+
+    const map = window.L.map('leaflet-picker-map').setView([initialLat, initialLng], 14);
+
+    window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Esri World Imagery'
+    }).addTo(map);
+
+    let marker = null;
+    if (tempLat && tempLng) {
+      marker = window.L.marker([tempLat, tempLng]).addTo(map);
+    }
+
+    map.on('click', (e) => {
+      const { lat, lng } = e.latlng;
+      setTempLat(parseFloat(lat.toFixed(6)));
+      setTempLng(parseFloat(lng.toFixed(6)));
+      
+      if (marker) {
+        marker.setLatLng(e.latlng);
+      } else {
+        marker = window.L.marker(e.latlng).addTo(map);
+      }
+    });
+
+    window.pickerMap = map;
+    window.pickerMarker = marker;
+
+    return () => {
+      if (window.pickerMap) {
+        window.pickerMap.remove();
+        window.pickerMap = null;
+        window.pickerMarker = null;
+      }
+    };
+  }, [mapReady, isGeoOpen]);
+
+  const handleMapSearch = async () => {
+    if (!mapSearch.trim()) return;
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(mapSearch)}`);
+      const data = await response.json();
+      if (data && data.length > 0) {
+        const { lat, lon } = data[0];
+        const newLat = parseFloat(lat);
+        const newLng = parseFloat(lon);
+        
+        setTempLat(parseFloat(newLat.toFixed(6)));
+        setTempLng(parseFloat(newLng.toFixed(6)));
+
+        if (window.pickerMap) {
+          window.pickerMap.setView([newLat, newLng], 16);
+          if (window.pickerMarker) {
+            window.pickerMarker.setLatLng([newLat, newLng]);
+          } else {
+            window.pickerMarker = window.L.marker([newLat, newLng]).addTo(window.pickerMap);
+          }
+        }
+      } else {
+        alert('Endereço não localizado no mapa.');
+      }
+    } catch(err) {
+      alert('Erro na busca: ' + err.message);
+    }
+  };
+
   if (loading) return <div className="loading-wrap"><div className="spinner"></div><span>Carregando processo...</span></div>;
   if (error || !proc) return <div className="alert alert-err" style={{margin: 18}}>{error || 'Não encontrado.'}</div>;
 
@@ -110,6 +235,7 @@ export function ProcessDetail() {
   const isSuper = r === 'admin' || r === 'secretary';
   const isProtPanel = r === 'protocol' || r === 'admin';
   const canMove = isMyProc || isSuper || r === 'protocol';
+  const canSeeTour = ['analyst', 'admin', 'secretary'].includes(r);
   
   const nextStatuses = (FLOW[proc.current_status]?.[r] || []).map(sid => SM[sid]).filter(Boolean);
   const movs = [...proc.movements].reverse();
@@ -221,6 +347,39 @@ export function ProcessDetail() {
     }
   };
 
+  const handleUnassign = async () => {
+    setUnLoading(true);
+    setUnAlert('');
+    try {
+      await api.unassignProcess(proc.id, unNotes.trim() ? `Devolvido: ${unNotes.trim()}` : null, user);
+      setIsUnassignOpen(false);
+      setUnNotes('');
+      loadData();
+    } catch(err) {
+      setUnAlert('Erro: ' + err.message);
+    } finally {
+      setUnLoading(false);
+    }
+  };
+
+  const handleSaveGeoData = async () => {
+    setGeoLoading(true);
+    setGeoAlert('');
+    try {
+      await api.updateProcess(proc.id, {
+        latitude: tempLat || null,
+        longitude: tempLng || null,
+        report_observation: geoNotes.trim() || null
+      });
+      setIsGeoOpen(false);
+      loadData();
+    } catch(err) {
+      setGeoAlert('Erro ao salvar: ' + err.message);
+    } finally {
+      setGeoLoading(false);
+    }
+  };
+
   return (
     <>
       {restricaoAtiva && (
@@ -261,11 +420,19 @@ export function ProcessDetail() {
             </table>
             
             {(isSuper || r === 'analyst' || r === 'protocol') && (
-              <div style={{marginTop: '12px', textAlign: 'right'}}>
+              <div style={{marginTop: '12px', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: '8px'}}>
+                {(isMyProc || isSuper) && proc.assigned_to && (
+                  <button className="btn btn-outline btn-sm" onClick={() => setIsUnassignOpen(true)} style={{fontSize: '11px', color: 'var(--red)', borderColor: 'var(--red)44'}}>📥 Devolver p/ Armário</button>
+                )}
+                {canSeeTour && (
+                  <button className="btn btn-outline btn-sm" onClick={() => setIsTourOpen(true)} style={{fontSize: '11px', borderColor: 'var(--blue)', color: 'var(--blue)'}}>📸 Vistoria 360º</button>
+                )}
                 <button className="btn btn-outline btn-sm" onClick={() => {
                   setEpProt(proc.protocol);
                   setEpReq(proc.requester);
                   setEpType(proc.type);
+                  setEpBairro(proc.bairro || '');
+                  setEpEmp(proc.empreendimento || '');
                   setIsEditProcOpen(true);
                 }} style={{fontSize: '11px'}}>✏️ Editar Registro</button>
               </div>
@@ -282,6 +449,43 @@ export function ProcessDetail() {
                   </select>
                 </div>
               </>
+            )}
+          </div>
+
+          {/* Georreferenciamento e Observação Técnica */}
+          <div className="card" style={{borderTop: '4px solid var(--green)'}}>
+            <div className="card-title" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+              <span>📍 Georreferenciamento Técnico</span>
+              {(isMyProc || isSuper) && (
+                <button className="btn btn-primary btn-sm" onClick={() => setIsGeoOpen(true)} style={{fontSize: '11px', padding: '4px 8px'}}>
+                  {proc.latitude ? '✏️ Alterar Dados' : '📍 Cadastrar Dados'}
+                </button>
+              )}
+            </div>
+            
+            {proc.latitude && proc.longitude ? (
+              <div>
+                <div style={{background: 'var(--body-bg)', padding: '12px', borderRadius: 'var(--r)', border: '1px solid var(--border)', fontSize: '13px', marginBottom: '12px'}}>
+                  <div style={{display: 'flex', gap: '8px', marginBottom: '6px'}}>
+                    <strong>Latitude:</strong> <span className="mono">{proc.latitude}</span>
+                  </div>
+                  <div style={{display: 'flex', gap: '8px'}}>
+                    <strong>Longitude:</strong> <span className="mono">{proc.longitude}</span>
+                  </div>
+                </div>
+                {proc.report_observation && (
+                  <div style={{fontSize: '13px'}}>
+                    <strong style={{color: 'var(--text2)', display: 'block', marginBottom: '4px'}}>Observações Técnicas do Relatório:</strong>
+                    <div style={{background: 'var(--body-bg)', padding: '12px', borderRadius: 'var(--r)', border: '1px solid var(--border)', fontStyle: 'italic', color: 'var(--text2)', maxHeight: '120px', overflowY: 'auto'}}>
+                      {proc.report_observation}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="empty" style={{padding: '16px 0', fontSize: '13px'}}>
+                Nenhuma coordenada ou observação técnica cadastrada para este processo.
+              </div>
             )}
           </div>
 
@@ -473,6 +677,90 @@ export function ProcessDetail() {
             {selectedMov?.attachment_url && <div style={{fontSize: '10px', color: 'var(--text3)', marginTop: '4px'}}>Já existe um arquivo anexado. Envie um novo para substituir.</div>}
           </div>
           {emAlert && <div className="alert alert-err">{emAlert}</div>}
+        </Modal>
+      )}
+
+      {isUnassignOpen && (
+        <Modal
+          title="Devolver ao Armário"
+          onClose={() => setIsUnassignOpen(false)}
+          footer={<>
+            <button className="btn btn-outline" onClick={() => setIsUnassignOpen(false)}>Cancelar</button>
+            <button className="btn btn-danger" onClick={handleUnassign} disabled={unLoading}>
+              {unLoading ? 'Devolvendo...' : 'Confirmar Devolução'}
+            </button>
+          </>}
+        >
+          <div className="alert alert-warn">Ao confirmar, este processo deixará de estar em sua lista e voltará para o armário comum do setor.</div>
+          <div className="fg">
+            <label>Motivo da devolução (opcional)</label>
+            <textarea 
+              value={unNotes} 
+              onChange={e => setUnNotes(e.target.value)} 
+              placeholder="Ex: Protocolo em duplicidade, peguei por engano..." 
+            />
+          </div>
+          {unAlert && <div className="alert alert-err" style={{marginTop: 10}}>{unAlert}</div>}
+        </Modal>
+      )}
+
+      {isTourOpen && (
+        <Modal 
+          title="Tour Virtual 360º - Vistoria Técnica" 
+          onClose={() => setIsTourOpen(false)}
+          width="90%"
+          footer={<button className="btn btn-outline" onClick={() => setIsTourOpen(false)}>Fechar</button>}
+        >
+          <Tour360 processId={proc.id} user={user} />
+        </Modal>
+      )}
+
+      {isGeoOpen && (
+        <Modal
+          title="📍 Georreferenciamento Técnico & Notas do Relatório"
+          onClose={() => setIsGeoOpen(false)}
+          width="700px"
+          footer={<>
+            <button className="btn btn-outline" onClick={() => setIsGeoOpen(false)}>Cancelar</button>
+            <button className="btn btn-primary" onClick={handleSaveGeoData} disabled={geoLoading}>
+              {geoLoading ? 'Salvando...' : '💾 Salvar Dados Técnicos'}
+            </button>
+          </>}
+        >
+          <div style={{marginBottom: '14px'}}>
+            <label style={{fontWeight: 600, display: 'block', marginBottom: '4px'}}>1. Pesquisar e Cravar Localização no Mapa de Satélite</label>
+            <p style={{fontSize: '11px', color: 'var(--text3)', marginTop: 0, marginBottom: '8px'}}>Pesquise o endereço/bairro para aproximar o foco, e então CLIQUE no mapa para fixar o ponto exato da vistoria.</p>
+            <div className="fca gap8" style={{marginBottom: '10px'}}>
+              <input 
+                type="text" 
+                placeholder="Ex: Rua Floriano Peixoto, Centro..." 
+                value={mapSearch}
+                onChange={e => setMapSearch(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleMapSearch()}
+                style={{flex: 1}}
+              />
+              <button type="button" className="btn btn-outline" onClick={handleMapSearch}>🔍 Localizar</button>
+            </div>
+            
+            <div id="leaflet-picker-map" style={{height: '350px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '10px'}}></div>
+            
+            <div className="fca gap12" style={{background: 'var(--body-bg)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '12px'}}>
+              <div><strong>Latitude Selecionada:</strong> <span className="mono" style={{color: 'var(--green)', fontWeight: 'bold'}}>{tempLat || 'Clique no mapa para marcar'}</span></div>
+              <div><strong>Longitude Selecionada:</strong> <span className="mono" style={{color: 'var(--green)', fontWeight: 'bold'}}>{tempLng || 'Clique no mapa para marcar'}</span></div>
+            </div>
+          </div>
+
+          <div className="fg" style={{marginTop: '16px'}}>
+            <label style={{fontWeight: 600}}>2. Observações Adicionais para o Relatório Técnico</label>
+            <textarea
+              value={geoNotes}
+              onChange={e => setGeoNotes(e.target.value)}
+              placeholder="Descreva detalhes específicos do terreno, andamento da obra ou notas gerais que devem constar impressas no relatório..."
+              rows={4}
+            />
+          </div>
+
+          {geoAlert && <div className="alert alert-err" style={{marginTop: '10px'}}>{geoAlert}</div>}
         </Modal>
       )}
     </>

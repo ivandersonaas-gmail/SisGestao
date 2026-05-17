@@ -32,6 +32,65 @@ export function AdvancedReports() {
     setEndDate(e.toLocaleDateString('sv-SE'));
   };
 
+  useEffect(() => {
+    if (!reportData) return;
+
+    const loadLeaflet = () => {
+      return new Promise((resolve) => {
+        if (window.L) return resolve();
+
+        if (!document.getElementById('leaflet-css')) {
+          const link = document.createElement('link');
+          link.id = 'leaflet-css';
+          link.rel = 'stylesheet';
+          link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+          document.head.appendChild(link);
+        }
+
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        script.onload = () => resolve();
+        document.body.appendChild(script);
+      });
+    };
+
+    loadLeaflet().then(() => {
+      setTimeout(() => {
+        const containers = document.querySelectorAll('.map-print-container');
+        containers.forEach(el => {
+          if (el.classList.contains('leaflet-container')) return;
+
+          const lat = parseFloat(el.getAttribute('data-lat'));
+          const lng = parseFloat(el.getAttribute('data-lng'));
+          if (isNaN(lat) || isNaN(lng)) return;
+
+          const map = window.L.map(el, {
+            zoomControl: false,
+            dragging: false,
+            touchZoom: false,
+            scrollWheelZoom: false,
+            doubleClickZoom: false,
+            boxZoom: false,
+            keyboard: false
+          }).setView([lat, lng], 16);
+
+          window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Esri'
+          }).addTo(map);
+
+          window.L.circle([lat, lng], {
+            color: '#e53e3e',
+            fillColor: '#f56565',
+            fillOpacity: 0.35,
+            radius: 50
+          }).addTo(map);
+
+          window.L.marker([lat, lng]).addTo(map);
+        });
+      }, 100);
+    });
+  }, [reportData]);
+
   const generateReport = async () => {
     if(!startDate || !endDate) {
       alert("Preencha data inicial e final.");
@@ -49,8 +108,37 @@ export function AdvancedReports() {
       let totalAcoes = 0;
       
       const activeTypesSet = new Set();
+      const finalizationStatuses = ['ANUENCIA_SOLO', 'ASSINADO'];
       
-      movs.forEach(m => {
+      // Filtrar movimentos de finalização apenas se eles tiverem sido cancelados/reabertos para análise ativa
+      const filteredMovs = movs.filter(m => {
+        if (['ANUENCIA_SOLO', 'ASSINADO', 'ENC_ASSINATURA', 'LIC_COND', 'ATO_APR', 'V2_ATO', 'V2_COND'].includes(m.status)) {
+          const isReopened = ['EM_ANALISE', 'PARECER', 'RECEBIDO_SETOR', 'ENC_ANALISE', 'ENTRADA', 'RETORNO_REQ'].includes(m.process?.current_status);
+          return !isReopened;
+        }
+        return true;
+      });
+
+      // Mapeamento unificado de ID de usuário para nome de usuário a partir de todos os movimentos buscados
+      const userNamesMap = {};
+      filteredMovs.forEach(m => {
+        if (m.created_by_id && m.created_by_name) {
+          userNamesMap[m.created_by_id] = m.created_by_name;
+        }
+      });
+
+      // Mapear processos finalizados únicos no período para evitar dupla contagem absoluta
+      const uniqueFinalizedProcsMap = {};
+      filteredMovs.forEach(m => {
+        if (finalizationStatuses.includes(m.status)) {
+          if (!uniqueFinalizedProcsMap[m.process_id]) {
+            uniqueFinalizedProcsMap[m.process_id] = m;
+          }
+        }
+      });
+      
+      // Processar todas as ações gerais do Roll de Ações do período
+      filteredMovs.forEach(m => {
         totalAcoes++;
         const uid = m.created_by_id;
         if(!analystsMap[uid]) {
@@ -63,21 +151,47 @@ export function AdvancedReports() {
             total: 0 
           };
         }
-        analystsMap[uid].total++;
+        
         if(m.status === 'PARECER') analystsMap[uid].pareceres++;
-        if(m.status === 'ANUENCIA' || m.status === 'ANUENCIA_SOLO') {
-          analystsMap[uid].anuencias++;
+        if(m.status === 'ANUENCIA') {
+          analystsMap[uid].anuencias++; // Apenas ANUENCIA simples conta em Anuências
         }
-        if(m.status === 'ENC_ASSINATURA' || m.status === 'ANUENCIA_SOLO') {
-          analystsMap[uid].finalizados++;
-          const pType = m.process?.type || 'Outro';
-          if(analystsMap[uid].types[pType] !== undefined) {
-             analystsMap[uid].types[pType]++;
-          } else {
-             analystsMap[uid].types[pType] = 1;
-             activeTypesSet.add(pType);
-          }
+      });
+
+      // Atribuir as entregas finais oficializadas de forma única no período
+      Object.values(uniqueFinalizedProcsMap).forEach(m => {
+        // O analista que recebe o crédito da finalização é o que estava atribuído (assigned_to)
+        // ou o próprio criador do movimento (em caso de anuencia de solo ou fallback)
+        const uid = m.status === 'ANUENCIA_SOLO' ? m.created_by_id : (m.process?.assigned_to || m.created_by_id);
+        
+        if(!analystsMap[uid]) {
+          analystsMap[uid] = {
+            name: userNamesMap[uid] || m.created_by_name,
+            pareceres: 0,
+            anuencias: 0,
+            finalizados: 0,
+            types: {},
+            total: 0
+          };
         }
+
+        analystsMap[uid].finalizados++;
+
+        const actionLabel = m.status === 'ANUENCIA_SOLO' ? 'Anuência de Solo' : 'Processo Finalizado';
+        const pType = m.process?.type || 'Outro';
+        const composedType = `${actionLabel} (${pType})`;
+
+        if(analystsMap[uid].types[composedType] !== undefined) {
+           analystsMap[uid].types[composedType]++;
+        } else {
+           analystsMap[uid].types[composedType] = 1;
+           activeTypesSet.add(composedType);
+        }
+      });
+
+      // Recalcular o Total Prod de cada analista com base nas colunas oficiais
+      Object.keys(analystsMap).forEach(uid => {
+        analystsMap[uid].total = analystsMap[uid].pareceres + analystsMap[uid].anuencias + analystsMap[uid].finalizados;
       });
       
       const activeTypes = Array.from(activeTypesSet).sort();
@@ -85,9 +199,9 @@ export function AdvancedReports() {
 
       setReportData({
         totalAcoes,
-        licencas: movs.filter(m => ['ENC_ASSINATURA', 'ANUENCIA_SOLO'].includes(m.status)).length,
+        licencas: Object.keys(uniqueFinalizedProcsMap).length,
         rankList,
-        movs,
+        movs: filteredMovs,
         activeTypes
       });
 
@@ -198,26 +312,62 @@ export function AdvancedReports() {
                     <th style={{padding: '6px 4px', textAlign: 'left'}}>Data</th>
                     <th style={{padding: '6px 4px', textAlign: 'left'}}>Processo / Requerente</th>
                     <th style={{padding: '6px 4px', textAlign: 'left'}}>Ação Efetuada</th>
+                    <th style={{padding: '6px 4px', textAlign: 'left'}}>Observação</th>
                     {!isAnalyst && <th style={{padding: '6px 4px', textAlign: 'left'}}>Autor</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {reportData.movs.map(m => (
-                    <tr key={m.id} style={{borderBottom: '1px solid #eee'}}>
-                      <td style={{padding: '6px 4px', fontSize: '12px', verticalAlign: 'top'}}>
-                        {new Date(m.created_at).toLocaleString('pt-BR')}
-                      </td>
-                      <td style={{padding: '6px 4px', verticalAlign: 'top'}}>
-                        <strong style={{fontFamily: 'monospace'}}>{m.process?.protocol || 'Desconhecido'}</strong><br/>
-                        <span style={{fontSize: '12px'}}>{m.process?.requester || '—'}</span><br/>
-                        <span style={{fontSize: '11px', color: 'var(--text3)'}}>{m.process?.type || '—'}</span>
-                      </td>
-                      <td style={{padding: '6px 4px', verticalAlign: 'top'}}>
-                        <Badge statusId={m.status} />
-                        {m.notes && <div style={{fontSize: '11px', color: 'var(--text2)', marginTop: '2px', maxWidth: '300px'}}><i>↳ {m.notes}</i></div>}
-                      </td>
-                      {!isAnalyst && <td style={{padding: '6px 4px'}}><span style={{fontSize: '12px'}}>{m.created_by_name.split(' ')[0]}</span></td>}
-                    </tr>
+                    <React.Fragment key={m.id}>
+                      <tr style={{borderBottom: m.process?.latitude && m.process?.longitude ? 'none' : '1px solid #eee', pageBreakInside: 'avoid'}}>
+                        <td style={{padding: '6px 4px', fontSize: '12px', verticalAlign: 'top'}}>
+                          {new Date(m.created_at).toLocaleString('pt-BR')}
+                        </td>
+                        <td style={{padding: '6px 4px', verticalAlign: 'top'}}>
+                          <strong style={{fontFamily: 'monospace'}}>{m.process?.protocol || 'Desconhecido'}</strong><br/>
+                          <span style={{fontSize: '12px'}}>{m.process?.requester || '—'}</span><br/>
+                          <span style={{fontSize: '11px', color: 'var(--text3)'}}>{m.process?.type || '—'}</span>
+                        </td>
+                        <td style={{padding: '6px 4px', verticalAlign: 'top'}}>
+                          <Badge statusId={m.status} />
+                          {m.notes && <div style={{fontSize: '11px', color: 'var(--text2)', marginTop: '2px', maxWidth: '300px'}}><i>↳ {m.notes}</i></div>}
+                        </td>
+                        <td style={{padding: '6px 4px', fontSize: '12px', verticalAlign: 'top', maxWidth: '300px', fontStyle: 'italic', color: 'var(--text2)'}}>
+                          {m.process?.report_observation || '—'}
+                        </td>
+                        {!isAnalyst && <td style={{padding: '6px 4px', verticalAlign: 'top'}}><span style={{fontSize: '12px'}}>{m.created_by_name.split(' ')[0]}</span></td>}
+                      </tr>
+                      {m.process?.latitude && m.process?.longitude && (
+                        <tr style={{borderBottom: '1px solid #eee', background: '#fafafa', pageBreakInside: 'avoid'}} className="print-keep">
+                          <td colSpan={isAnalyst ? 4 : 5} style={{padding: '12px 16px'}}>
+                            <div style={{display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap'}}>
+                              {/* Mapa Técnico */}
+                              <div style={{flex: '1 1 350px', minWidth: '280px'}}>
+                                <div style={{fontSize: '10px', fontWeight: 'bold', color: 'var(--text2)', marginBottom: '6px', letterSpacing: '.5px'}}>📍 LOCALIZAÇÃO GEORREFERENCIADA</div>
+                                <div 
+                                  className="map-print-container" 
+                                  data-lat={m.process.latitude} 
+                                  data-lng={m.process.longitude} 
+                                  style={{height: '180px', borderRadius: '6px', border: '1px solid #ccc', position: 'relative'}}
+                                ></div>
+                                <div style={{fontSize: '10px', color: 'var(--text3)', marginTop: '4px'}}>
+                                  Lat: {m.process.latitude} | Lng: {m.process.longitude}
+                                </div>
+                              </div>
+                              {/* QR Code de Autenticação */}
+                              <div style={{flex: '0 0 160px', textAlign: 'center'}}>
+                                <div style={{fontSize: '10px', fontWeight: 'bold', color: 'var(--text2)', marginBottom: '6px', letterSpacing: '.5px'}}>📍 NAVEGAÇÃO GPS</div>
+                                <img 
+                                  src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(`https://www.google.com/maps/search/?api=1&query=${m.process.latitude},${m.process.longitude}`)}`} 
+                                  alt="QR Code Navegação Google Maps" 
+                                  style={{border: '1px solid #ddd', padding: '4px', borderRadius: '4px', background: '#fff', width: '120px', height: '120px'}}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
