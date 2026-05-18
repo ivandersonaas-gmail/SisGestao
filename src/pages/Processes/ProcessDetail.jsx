@@ -451,7 +451,7 @@ export function ProcessDetail() {
                   setEpEmp(proc.empreendimento || '');
                   setIsEditProcOpen(true);
                 }} style={{fontSize: '11px'}}>✏️ Editar Registro</button>
-                {(r === 'protocol' || r === 'admin') && (
+                {(r === 'protocol' || r === 'admin' || r === 'secretary') && (
                   <button className="btn btn-danger btn-sm" onClick={handleDeleteProcess} style={{fontSize: '11px'}}>
                     🗑️ Excluir Protocolo
                   </button>

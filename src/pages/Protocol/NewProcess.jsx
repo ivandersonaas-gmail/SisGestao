@@ -56,10 +56,8 @@ export function NewProcess() {
         type,
         bairro: bairro.toUpperCase(),
         empreendimento: empreendimento.toUpperCase(),
-        created_by_id: user.id,
-        created_by_name: user.name,
-        current_status: 'ENTRADA',
-        movement_count: 1
+        created_by: user.id,
+        current_status: 'ENTRADA'
       };
       const created = await api.createProcess(proc);
       
