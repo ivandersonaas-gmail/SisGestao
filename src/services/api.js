@@ -258,6 +258,19 @@ export const api = {
     if(error) throw error;
     return data || [];
   },
+  async getAdvancedReportsForProcesses(processIds, isAnalyst, analystId) {
+    let q = supabase.from('movements').select('*, process:processes_view(protocol, requester, type, current_status, assigned_to, latitude, longitude, report_observation)')
+      .in('status', ['PARECER', 'ANUENCIA', 'ANUENCIA_SOLO', 'ENC_ASSINATURA', 'LIC_COND', 'ATO_APR', 'V2_ATO', 'V2_COND', 'ASSINADO'])
+      .in('process_id', processIds);
+      
+    if(isAnalyst) {
+      q = q.eq('created_by_id', analystId);
+    }
+    
+    const { data, error } = await q.order('created_at', {ascending: false});
+    if(error) throw error;
+    return data || [];
+  },
   async getProtocolReports(startIso, endIso) {
     let q = supabase.from('movements').select('*, process:processes_view(protocol, requester, type, current_status, assigned_to, latitude, longitude, report_observation)')
       .in('status', ['ENTRADA', 'ENC_ANALISE', 'DEV_REQUERENTE', 'RETORNO_REQ', 'DISP_RETIRADA', 'FINALIZADO'])

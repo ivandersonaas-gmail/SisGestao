@@ -11,6 +11,12 @@ export function AdvancedReports() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
+  // Estados para seleção personalizada de processos
+  const [showSelector, setShowSelector] = useState(false);
+  const [allProcesses, setAllProcesses] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedProcIds, setSelectedProcIds] = useState([]);
+
   const isAnalyst = user.role === 'analyst';
 
   const setRepDates = (tipo) => {
@@ -30,6 +36,19 @@ export function AdvancedReports() {
     
     setStartDate(s.toLocaleDateString('sv-SE'));
     setEndDate(e.toLocaleDateString('sv-SE'));
+  };
+
+  const openSelector = async () => {
+    try {
+      setLoading(true);
+      const procs = await api.getProcesses(user.role, user.id);
+      setAllProcesses(procs);
+      setShowSelector(true);
+    } catch (e) {
+      alert("Erro ao carregar processos: " + e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -92,17 +111,21 @@ export function AdvancedReports() {
   }, [reportData]);
 
   const generateReport = async () => {
-    if(!startDate || !endDate) {
-      alert("Preencha data inicial e final.");
+    if(selectedProcIds.length === 0 && (!startDate || !endDate)) {
+      alert("Preencha data inicial e final ou selecione processos manualmente.");
       return;
     }
     setLoading(true);
     setReportData(null);
     try {
-      const startIso = startDate + 'T00:00:00';
-      const endIso = endDate + 'T23:59:59';
-      
-      const movs = await api.getAdvancedReports(startIso, endIso, isAnalyst, user.id);
+      let movs = [];
+      if (selectedProcIds.length > 0) {
+        movs = await api.getAdvancedReportsForProcesses(selectedProcIds, isAnalyst, user.id);
+      } else {
+        const startIso = startDate + 'T00:00:00';
+        const endIso = endDate + 'T23:59:59';
+        movs = await api.getAdvancedReports(startIso, endIso, isAnalyst, user.id);
+      }
       
       const analystsMap = {};
       let totalAcoes = 0;
@@ -221,22 +244,34 @@ export function AdvancedReports() {
         <div className="fca gap10" style={{flexWrap: 'wrap'}}>
           <div className="fg" style={{flex: 1, minWidth: '140px'}}>
             <label>Data Início</label>
-            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} disabled={selectedProcIds.length > 0} />
           </div>
           <div className="fg" style={{flex: 1, minWidth: '140px'}}>
             <label>Data Fim</label>
-            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} disabled={selectedProcIds.length > 0} />
           </div>
           <div className="fca gap6" style={{flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-end'}}>
             <button className="btn btn-primary" onClick={generateReport} disabled={loading}>
-              {loading ? 'Buscando...' : 'Gerar Relatório'}
+              {loading ? 'Buscando...' : selectedProcIds.length > 0 ? `Gerar Customizado (${selectedProcIds.length})` : 'Gerar Relatório'}
             </button>
           </div>
         </div>
         <div className="fca gap8" style={{marginTop: '12px', flexWrap: 'wrap'}}>
-          <button className="btn btn-outline btn-sm" onClick={() => setRepDates('hoje')}>Hoje</button>
-          <button className="btn btn-outline btn-sm" onClick={() => setRepDates('semana')}>Semana</button>
-          <button className="btn btn-outline btn-sm" onClick={() => setRepDates('mes')}>Este Mês</button>
+          <button className="btn btn-outline btn-sm" onClick={() => { setSelectedProcIds([]); setRepDates('hoje'); }}>Hoje</button>
+          <button className="btn btn-outline btn-sm" onClick={() => { setSelectedProcIds([]); setRepDates('semana'); }}>Semana</button>
+          <button className="btn btn-outline btn-sm" onClick={() => { setSelectedProcIds([]); setRepDates('mes'); }}>Este Mês</button>
+          <button 
+            className={`btn btn-sm ${selectedProcIds.length > 0 ? 'btn-amber' : 'btn-outline'}`} 
+            onClick={openSelector}
+            style={{textTransform: 'none'}}
+          >
+            {selectedProcIds.length > 0 ? `📁 Selecionados (${selectedProcIds.length})` : '📁 Selecionar Processos'}
+          </button>
+          {selectedProcIds.length > 0 && (
+            <button className="btn btn-ghost btn-sm" style={{color: 'var(--red)'}} onClick={() => setSelectedProcIds([])}>
+              Limpar Seleção
+            </button>
+          )}
           {reportData && <button className="btn btn-success btn-sm" onClick={handlePrint}>🖨️ Imprimir PDF</button>}
         </div>
       </div>
@@ -373,6 +408,116 @@ export function AdvancedReports() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {showSelector && (
+        <div className="modal-overlay fca jcc" style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.6)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 1000,
+          padding: '20px'
+        }}>
+          <div className="card" style={{
+            width: '100%',
+            maxWidth: '600px',
+            maxHeight: '85vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+            border: '1px solid var(--border)',
+            background: 'var(--card-bg, #fff)'
+          }}>
+            <div className="card-title" style={{marginBottom: '12px'}}>
+              Selecionar Processos para Relatório Customizado
+            </div>
+            
+            <div style={{marginBottom: '12px'}}>
+              <input 
+                type="text" 
+                placeholder="🔍 Buscar por protocolo ou requerente..." 
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                style={{width: '100%', height: '38px', padding: '0 12px', border: '1px solid var(--border)', borderRadius: '4px', background: 'transparent'}}
+              />
+            </div>
+            
+            <div className="fg" style={{
+              flex: 1,
+              overflowY: 'auto',
+              marginBottom: '16px',
+              maxHeight: '45vh',
+              border: '1px solid var(--border)',
+              borderRadius: '6px',
+              background: 'rgba(0,0,0,0.02)'
+            }}>
+              {allProcesses.filter(p => {
+                const q = searchTerm.toLowerCase();
+                return p.protocol.toLowerCase().includes(q) || p.requester.toLowerCase().includes(q);
+              }).length === 0 ? (
+                <div className="empty" style={{padding: '24px'}}>Nenhum processo encontrado para a busca.</div>
+              ) : (
+                allProcesses.filter(p => {
+                  const q = searchTerm.toLowerCase();
+                  return p.protocol.toLowerCase().includes(q) || p.requester.toLowerCase().includes(q);
+                }).map(p => (
+                  <label 
+                    key={p.id} 
+                    className="fca gap10 clickable" 
+                    style={{
+                      padding: '10px 12px',
+                      borderBottom: '1px solid var(--border)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      transition: 'background 0.2s',
+                      background: selectedProcIds.includes(p.id) ? 'rgba(245, 158, 11, 0.08)' : 'transparent'
+                    }}
+                  >
+                    <input 
+                      type="checkbox" 
+                      checked={selectedProcIds.includes(p.id)} 
+                      onChange={() => {
+                        setSelectedProcIds(prev => 
+                          prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]
+                        );
+                      }}
+                      style={{width: '18px', height: '18px', cursor: 'pointer', marginRight: '10px'}}
+                    />
+                    <div style={{flex: 1}}>
+                      <div className="fca gap8" style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                        <span className="mono" style={{fontWeight: 600, fontSize: '13px'}}>{p.protocol}</span>
+                        <Badge statusId={p.current_status} />
+                      </div>
+                      <div style={{fontSize: '12px', color: 'var(--text2)', marginTop: '2px'}}>{p.requester}</div>
+                      <div style={{fontSize: '11px', color: 'var(--text3)'}}>{p.type}</div>
+                    </div>
+                  </label>
+                ))
+              )}
+            </div>
+            
+            <div style={{fontSize: '12px', color: 'var(--text2)', marginBottom: '12px', fontWeight: 500}}>
+              Selecionados: {selectedProcIds.length} processo(s)
+            </div>
+            
+            <div className="fca gap8 jce" style={{marginTop: 'auto', display: 'flex', justifyContent: 'flex-end', gap: '8px'}}>
+              <button className="btn btn-outline btn-sm" onClick={() => setShowSelector(false)}>
+                Cancelar
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={() => {
+                if (selectedProcIds.length > 0) {
+                  setStartDate('');
+                  setEndDate('');
+                }
+                setShowSelector(false);
+              }}>
+                Confirmar Seleção ({selectedProcIds.length})
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </>
