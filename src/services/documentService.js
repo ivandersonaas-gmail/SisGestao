@@ -77,33 +77,55 @@ export async function uploadDocument(file) {
 }
 
 export async function ingestDocument(file, onProgress) {
-  onProgress?.('Fazendo upload para o repositório...')
+  onProgress?.('Registrando documento no repositório...')
   const doc = await uploadDocument(file)
 
-  onProgress?.('Extraindo texto do documento (Navegador)...')
-  const text = await extractText(file)
-
-  onProgress?.('Processando e salvando trechos...')
-  const chunks = chunkText(text, file.name)
+  onProgress?.('Enviando para o Motor de IA (LlamaParse)...')
   
-  const chunksToInsert = chunks.map(c => ({
-    document_id: doc.id,
-    content: c.content,
-    chunk_index: c.chunk_index,
-    metadata: c.metadata,
-    embedding: new Array(384).fill(0)
-  }))
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('document_id', doc.id);
+  formData.append('document_name', doc.name);
 
-  // Insere em lotes de 50
-  for (let i = 0; i < chunksToInsert.length; i += 50) {
-    const { error } = await supabase
-      .from('rag_chunks')
-      .insert(chunksToInsert.slice(i, i + 50))
-    if (error) throw new Error(`Erro ao salvar trechos no Supabase: ${error.message}`)
+  try {
+    const response = await fetch('http://127.0.0.1:8000/api/process_document', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'Falha ao iniciar processamento no backend');
+    }
+
+    const data = await response.json();
+    const jobId = data.job_id;
+
+    // Polling job status
+    while (true) {
+      await new Promise(r => setTimeout(r, 2000));
+      const statusRes = await fetch(`http://127.0.0.1:8000/api/job_status/${jobId}`);
+      if (!statusRes.ok) throw new Error('Falha ao checar status do processamento');
+      
+      const statusData = await statusRes.json();
+      
+      if (statusData.status === 'failed') {
+        throw new Error(statusData.error || 'Erro interno ao extrair texto do PDF');
+      }
+      
+      if (statusData.status === 'completed') {
+        onProgress?.('Chunking Semântico concluído com sucesso!');
+        break;
+      }
+      
+      onProgress?.(`Processando (Alta Fidelidade): ${statusData.progress || 0}%...`);
+    }
+
+    return { document: doc };
+  } catch (err) {
+    console.error("Erro no backend:", err);
+    throw new Error(`Erro na IA do Backend: ${err.message}`);
   }
-
-  onProgress?.('Concluído!')
-  return { document: doc, chunks_count: chunksToInsert.length }
 }
 
 export async function listDocuments() {

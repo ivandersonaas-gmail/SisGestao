@@ -51,7 +51,7 @@ export default function RAGChat() {
     setLoading(true)
     try {
       const result = await askRAG(q)
-      setMessages(prev => [...prev, { id: Date.now() + 1, role: 'assistant', content: result.answer, grounded: result.grounded, sources: result.sources, timestamp: new Date() }])
+      setMessages(prev => [...prev, { id: Date.now() + 1, role: 'assistant', content: result.answer, grounded: result.grounded, sources: result.sources, token_usage: result.token_usage, timestamp: new Date() }])
     } catch (err) {
       setMessages(prev => [...prev, { id: Date.now() + 1, role: 'error', content: `Erro: ${err.message}`, timestamp: new Date() }])
     } finally { setLoading(false) }
@@ -100,6 +100,25 @@ export default function RAGChat() {
                   {msg.sources.map((s, i) => <span key={i} className={styles.sourceTag}>{s}</span>)}
                 </div>
               )}
+              {msg.token_usage && (() => {
+                const oneMinuteAgo = new Date(msg.timestamp.getTime() - 60000);
+                const tokensLastMin = messages
+                  .filter(m => m.timestamp >= oneMinuteAgo && m.timestamp <= msg.timestamp && m.token_usage)
+                  .reduce((sum, m) => sum + m.token_usage.total_tokens, 0);
+                const remaining = Math.max(0, 1000000 - tokensLastMin);
+                
+                return (
+                  <div style={{ marginTop: '8px', fontSize: '11px', color: '#888', borderTop: '1px solid #eee', paddingTop: '4px' }}>
+                    <span>📊 <b>Custo desta Pergunta:</b> {msg.token_usage.total_tokens.toLocaleString('pt-BR')} tokens</span>
+                    <br/>
+                    <span>⏱️ <b>Gasto no último minuto:</b> {tokensLastMin.toLocaleString('pt-BR')} tokens</span>
+                    <br/>
+                    <span style={{color: remaining < 100000 ? '#d32f2f' : '#2e7d32'}}>
+                      🔋 <b>Saldo Gratuito Restante:</b> {remaining.toLocaleString('pt-BR')} / 1.000.000 tokens
+                    </span>
+                  </div>
+                );
+              })()}
               <span className={styles.msgTime}>{msg.timestamp?.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           ))}
