@@ -80,51 +80,103 @@ export async function ingestDocument(file, onProgress) {
   onProgress?.('Registrando documento no repositório...')
   const doc = await uploadDocument(file)
 
-  onProgress?.('Enviando para o Motor de IA (LlamaParse)...')
+  onProgress?.('Enviando para o LlamaParse na nuvem...')
   
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('document_id', doc.id);
-  formData.append('document_name', doc.name);
-
+  const LLAMA_API_KEY = import.meta.env.VITE_LLAMA_CLOUD_API_KEY || 'llx-fybwCC3onPgiIGhY70B5YuxLFhk1GSXpwgYIlcQHJKpYqRSS';
+  
   try {
-    const response = await fetch('http://127.0.0.1:8000/api/process_document', {
+    const uploadFormData = new FormData();
+    uploadFormData.append('file', file);
+    uploadFormData.append('language', 'pt');
+    uploadFormData.append('result_type', 'markdown');
+
+    // 1. Upload do PDF diretamente para a API do LlamaParse
+    const uploadRes = await fetch('https://api.cloud.llamaindex.ai/v1/parsing/upload', {
       method: 'POST',
-      body: formData,
+      headers: {
+        'Authorization': `Bearer ${LLAMA_API_KEY}`
+      },
+      body: uploadFormData
     });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || 'Falha ao iniciar processamento no backend');
+    if (!uploadRes.ok) {
+      throw new Error(`Falha no upload para o LlamaParse: ${uploadRes.status}`);
     }
 
-    const data = await response.json();
-    const jobId = data.job_id;
+    const uploadData = await uploadRes.json();
+    const jobId = uploadData.id;
 
-    // Polling job status
+    // 2. Polling de status do Job na Nuvem
     while (true) {
       await new Promise(r => setTimeout(r, 2000));
-      const statusRes = await fetch(`http://127.0.0.1:8000/api/job_status/${jobId}`);
-      if (!statusRes.ok) throw new Error('Falha ao checar status do processamento');
       
-      const statusData = await statusRes.json();
-      
-      if (statusData.status === 'failed') {
-        throw new Error(statusData.error || 'Erro interno ao extrair texto do PDF');
+      const statusRes = await fetch(`https://api.cloud.llamaindex.ai/v1/parsing/jobs/${jobId}`, {
+        headers: {
+          'Authorization': `Bearer ${LLAMA_API_KEY}`
+        }
+      });
+
+      if (!statusRes.ok) {
+        throw new Error('Falha ao verificar status no LlamaParse');
       }
-      
-      if (statusData.status === 'completed') {
-        onProgress?.('Chunking Semântico concluído com sucesso!');
+
+      const statusData = await statusRes.json();
+
+      if (statusData.status === 'ERROR') {
+        throw new Error(statusData.error_message || 'Erro no LlamaParse ao processar documento');
+      }
+
+      if (statusData.status === 'SUCCESS') {
+        onProgress?.('Análise de alta fidelidade concluída!');
         break;
       }
-      
-      onProgress?.(`Processando (Alta Fidelidade): ${statusData.progress || 0}%...`);
+
+      onProgress?.('LlamaParse está analisando suas tabelas na nuvem...');
     }
 
+    // 3. Download do Markdown do LlamaParse
+    onProgress?.('Obtendo Markdown estruturado...');
+    const resultRes = await fetch(`https://api.cloud.llamaindex.ai/v1/parsing/jobs/${jobId}/result/markdown`, {
+      headers: {
+        'Authorization': `Bearer ${LLAMA_API_KEY}`
+      }
+    });
+
+    if (!resultRes.ok) {
+      throw new Error('Falha ao baixar resultado do LlamaParse');
+    }
+
+    const text = await resultRes.text();
+
+    // 4. Criação das fatias (Chunking) e inserção direta no Supabase
+    onProgress?.('Dividindo texto em blocos...');
+    const rawChunks = chunkText(text, doc.name);
+
+    onProgress?.('Salvando trechos no banco de dados...');
+    const dbChunks = rawChunks.map(c => ({
+      document_id: doc.id,
+      content: c.content,
+      chunk_index: c.chunk_index,
+      metadata: c.metadata,
+      embedding: new Array(384).fill(0) // Dummy array de 384 dimensões exigido pela tabela
+    }));
+
+    // Inserção em lotes de 50 chunks
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < dbChunks.length; i += BATCH_SIZE) {
+      const batch = dbChunks.slice(i, i + BATCH_SIZE);
+      const { error: insertError } = await supabase
+        .from('rag_chunks')
+        .insert(batch);
+      if (insertError) throw new Error(`Erro ao salvar no Supabase: ${insertError.message}`);
+    }
+
+    onProgress?.('Documento processado com sucesso!');
     return { document: doc };
+
   } catch (err) {
-    console.error("Erro no backend:", err);
-    throw new Error(`Erro na IA do Backend: ${err.message}`);
+    console.error("Erro na ingestão:", err);
+    throw new Error(`Erro no processamento LlamaParse: ${err.message}`);
   }
 }
 
