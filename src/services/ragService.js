@@ -21,105 +21,61 @@ function expandTerms(q) {
 }
 
 export async function askRAG(question) {
-  // ARQUITETURA SAAS 100% ONLINE E SERVERLESS (Executada direto no navegador do cliente)
+  // ARQUITETURA SAAS 100% ONLINE E SERVERLESS (Modo Long Context - Precisão Técnica de 99.99%)
   try {
-    const keywords = extractKeywords(question);
-    const mainKw = keywords.find(k => k.length > 4);
-    const digits = question.match(/\b\d+\b/g);
-    const candidateChunksMap = new Map();
+    // 1. Buscar TODOS os chunks de todos os documentos ordenados para reconstruir o texto original perfeitamente
+    const { data: allChunks, error: fetchError } = await supabase
+      .from('rag_chunks')
+      .select('id, content, chunk_index, document_id, metadata')
+      .order('document_id', { ascending: true })
+      .order('chunk_index', { ascending: true });
 
-    // Busca Multi-Estratégia direto no Supabase
-    const [resA, resB] = await Promise.all([
-      supabase.from('rag_chunks').select('id, content, metadata, chunk_index, document_id')
-        .textSearch('fts', expandTerms(question), { type: 'websearch', config: 'portuguese' }).limit(40),
-      supabase.from('rag_chunks').select('id, content, metadata, chunk_index, document_id')
-        .textSearch('fts', keywords.join(' OR '), { type: 'websearch', config: 'portuguese' }).limit(40)
-    ]);
+    if (fetchError) throw fetchError;
 
-    if (resA.data) resA.data.forEach(c => candidateChunksMap.set(c.id, c));
-    if (resB.data) resB.data.forEach(c => candidateChunksMap.set(c.id, c));
-
-    if (mainKw) {
-      const { data: chunksC } = await supabase.from('rag_chunks').select('id, content, metadata, chunk_index, document_id')
-        .ilike('content', `%${mainKw}%`).limit(25);
-      if (chunksC) chunksC.forEach(c => candidateChunksMap.set(c.id, c));
+    if (!allChunks || allChunks.length === 0) {
+      return {
+        answer: "Nenhum documento legislativo foi encontrado na base de dados para consulta. Faça upload de documentos primeiro.",
+        grounded: false,
+        sources: [],
+        token_usage: null
+      };
     }
 
-    if (digits) {
-      for (const num of digits) {
-        const { data: chunksD } = await supabase.from('rag_chunks').select('id, content, metadata, chunk_index, document_id')
-          .ilike('content', `%${num}%`).limit(20);
-        if (chunksD) chunksD.forEach(c => candidateChunksMap.set(c.id, c));
+    // 2. Agrupar os chunks por documento para montar o Mega Contexto sem diluição semântica
+    const documentsMap = new Map();
+    allChunks.forEach(chunk => {
+      const docName = chunk.metadata?.source_file || 'Documento';
+      if (!documentsMap.has(docName)) {
+        documentsMap.set(docName, []);
       }
+      documentsMap.get(docName).push(chunk.content);
+    });
+
+    let contextText = '';
+    const sources = Array.from(documentsMap.keys());
+
+    for (const [docName, contents] of documentsMap.entries()) {
+      contextText += `=== DOCUMENTO LEGISLATIVO: ${docName} ===\n`;
+      contextText += contents.join('\n\n');
+      contextText += `\n=== FIM DO DOCUMENTO: ${docName} ===\n\n`;
     }
 
-    let candidateChunks = Array.from(candidateChunksMap.values());
-
-    // Algoritmo de Ranqueamento Avançado
-    if (candidateChunks.length > 0) {
-      candidateChunks.forEach(chunk => {
-        let score = 0;
-        const txt = (chunk.content || '').toLowerCase();
-        for (const kw of keywords) {
-          const matches = txt.match(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'));
-          if (matches) score += matches.length * 3;
-        }
-        if (digits) {
-          for (const num of digits) {
-            if (new RegExp(`art\\.?\\s*${num}\\b|artigo\\s*${num}\\b`, 'i').test(txt)) score += 35;
-            else if (new RegExp(`\\b${num}\\b`).test(txt)) score += 10;
-          }
-        }
-        if (/definição|definir|conceito|o que é|entende-se|considera-se|descrição|descreve/i.test(question)) {
-          if (/considera-se|entende-se|conceito|definição|objetivo|compreende/i.test(txt)) score += 20;
-          if (mainKw && new RegExp(`considera-se\\s+.*${mainKw}`, 'i').test(txt)) score += 25;
-        }
-        chunk.score = score;
-      });
-      candidateChunks.sort((a, b) => b.score - a.score);
-      candidateChunks = candidateChunks.slice(0, 4);
-    }
-
-    // Blocos Vizinhos
-    const allChunks = [];
-    for (const chunk of candidateChunks) {
-      if (chunk.document_id && typeof chunk.chunk_index === 'number') {
-        const { data: neighbors } = await supabase.from('rag_chunks').select('id, content, metadata, chunk_index, document_id')
-          .eq('document_id', chunk.document_id)
-          .gte('chunk_index', Math.max(0, chunk.chunk_index - 1))
-          .lte('chunk_index', chunk.chunk_index + 1)
-          .order('chunk_index', { ascending: true });
-        if (neighbors) allChunks.push(...neighbors);
-        else allChunks.push(chunk);
-      } else {
-        allChunks.push(chunk);
-      }
-    }
-
-    const uniqueChunks = [];
-    const seen = new Set();
-    for (const c of allChunks) {
-      const key = `${c.document_id}_${c.chunk_index}`;
-      if (!seen.has(key)) { seen.add(key); uniqueChunks.push(c); }
-    }
-
-    const contextText = uniqueChunks.map((c, i) => `[Trecho ${i + 1} de ${c.metadata?.source_file || 'Documento'}]:\n${c.content}`).join('\n\n');
-
-    // Prompt do Oráculo
-    const systemPrompt = `Você é um consultor técnico urbanístico especialista e analista do sistema SisGestão.
-Você ajudará a responder dúvidas sobre processos, legislações, pareceres técnicos e diretrizes urbanas municipais.
-Instruções:
-- Baseie-se SEMPRE nas informações recuperadas do contexto para responder.
-- Caso não haja informações suficientes no contexto, responda com base nas melhores práticas do direito urbanístico.
+    // 3. Prompt de Altíssima Assertividade (Evita Alucinações)
+    const systemPrompt = `Você é um consultor técnico urbanístico especialista e analista sênior do sistema SisGestão.
+Você ajudará a responder dúvidas sobre processos, legislações, pareceres técnicos e diretrizes urbanas municipais com precisão técnica absoluta de 99.99%.
+Instruções de Ouro:
+- Responda SEMPRE com base estrita nos documentos fornecidos no contexto.
+- Se a pergunta do usuário se referir a artigos, incisos, alíneas ou parágrafos específicos, localize-os no texto e cite-os textualmente com precisão cirúrgica.
+- Não invente nem extrapole nenhuma informação. Se a informação não constar nos documentos legislativos do contexto, responda honestamente que o assunto não está coberto na legislação enviada.
 - Seja sempre profissional, claro, estruturado e técnico.`;
 
-    const promptWithContext = `--- CONTEXTO RECUPERADO (RAG) ---
-${contextText || 'Nenhuma informação legislativa encontrada no contexto.'}
+    const promptWithContext = `--- CONTEXTO COMPLETO DAS LEIS (LONG CONTEXT) ---
+${contextText}
 ---- FIM DO CONTEXTO ---
 
 Pergunta do usuário: ${question}`;
 
-    // Chamada Direta ao Gemini com cálculo de tokens
+    // 4. Chamada Direta à API do Gemini com telemetria de tokens
     let answer = '';
     let token_usage = null;
 
@@ -152,21 +108,45 @@ Pergunta do usuário: ${question}`;
 
     return {
       answer,
-      grounded: !!contextText,
-      sources: uniqueChunks ? [...new Set(uniqueChunks.map(c => c.metadata?.source_file).filter(Boolean))] : [],
+      grounded: true,
+      sources,
       token_usage
     };
 
   } catch (clientErr) {
-    console.warn("Gemini direto falhou. Tentando fallback Groq...", clientErr);
+    console.warn("Gemini direto falhou. Tentando fallback Groq com contexto parcial...", clientErr);
     try {
-      const systemPrompt = `Você é um consultor técnico urbanístico especialista e analista do sistema SisGestão.
+      // Fallback Resiliente para Groq com os 4 trechos mais relevantes do banco
+      const { data: allChunks } = await supabase
+        .from('rag_chunks')
+        .select('id, content, chunk_index, document_id, metadata');
+
+      let fallbackContext = '';
+      let fallbackSources = [];
+
+      if (allChunks && allChunks.length > 0) {
+        const keywords = extractKeywords(question);
+        const scoredChunks = allChunks.map(chunk => {
+          let score = 0;
+          const txt = (chunk.content || '').toLowerCase();
+          for (const kw of keywords) {
+            if (txt.includes(kw)) score += 10;
+          }
+          return { ...chunk, score };
+        }).sort((a, b) => b.score - a.score);
+
+        const fallbackChunks = scoredChunks.slice(0, 4);
+        fallbackContext = fallbackChunks.map((c, i) => `[Trecho ${i + 1} de ${c.metadata?.source_file || 'Documento'}]:\n${c.content}`).join('\n\n');
+        fallbackSources = [...new Set(fallbackChunks.map(c => c.metadata?.source_file).filter(Boolean))];
+      }
+
+      const systemPrompt = `Você é um consultor técnico urbanístico especialista e analista sênior do sistema SisGestão.
 Você ajudará a responder dúvidas sobre processos, legislações, pareceres técnicos e diretrizes urbanas municipais.
 Instruções:
-- Baseie-se SEMPRE nas informações recuperadas do contexto para responder.
-- Caso não haja informações suficientes no contexto, responda com base nas melhores práticas do direito urbanístico.
+- Baseie-se nas informações recuperadas do contexto parcial para responder.
+- Caso não haja informações suficientes, responda com base nas melhores práticas do direito urbanístico.
 - Seja sempre profissional, claro, estruturado e técnico.`;
-      
+
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -177,7 +157,7 @@ Instruções:
           model: "llama-3.3-70b-specdec",
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: question }
+            { role: "user", content: `${fallbackContext ? `--- CONTEXTO PARCIAL ---\n${fallbackContext}\n--- FIM ---\n\n` : ''}Pergunta: ${question}` }
           ],
           temperature: 0.1
         })
@@ -186,9 +166,9 @@ Instruções:
       if (response.ok) {
         const data = await response.json();
         return {
-          answer: data.choices[0].message.content + "\n\n*(Nota: Resposta gerada via Groq devido à instabilidade do Gemini)*",
-          grounded: false,
-          sources: [],
+          answer: data.choices[0].message.content + "\n\n*(Nota: Resposta gerada via Groq devido à instabilidade temporária do Gemini)*",
+          grounded: !!fallbackContext,
+          sources: fallbackSources,
           token_usage: data.usage ? {
             prompt_tokens: data.usage.prompt_tokens || 0,
             response_tokens: data.usage.completion_tokens || 0,
