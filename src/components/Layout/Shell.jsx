@@ -80,6 +80,7 @@ export function Shell({ children, title, actions, armLen = 0 }) {
               <NavItem icon={Bell} label="Aguardando Ação" to="/pending" />
               <NavItem icon={Users} label="Gestão de Fiscais" to="/admin/fiscais" />
               <NavItem icon={Search} label="Consultar Processo" to="/consulta" />
+              <NavItem icon={BarChart2} label="Relatório Avançado" to="/protocol-reports" />
             </>
           )}
 
@@ -124,7 +125,8 @@ export function Shell({ children, title, actions, armLen = 0 }) {
               <NavItem icon={List} label="Tipos de Processo" to="/admin/proc-types" />
               <NavItem icon={ShieldCheck} label="Restrições" to="/admin/restricoes" />
               <NavItem icon={Users} label="Gestão de Fiscais" to="/admin/fiscais" />
-              <NavItem icon={BarChart2} label="Relatórios" to="/reports" />
+              <NavItem icon={BarChart2} label="Relatório Analista" to="/reports" />
+              <NavItem icon={BarChart2} label="Relatório Protocolo" to="/protocol-reports" />
               <NavItem icon={ShieldCheck} label="Auditoria" to="/admin/audit" />
             </>
           )}

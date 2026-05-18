@@ -20,6 +20,7 @@ import { Restricoes } from './pages/Admin/Restricoes';
 
 import { Productivity } from './pages/Reports/Productivity';
 import { AdvancedReports } from './pages/Reports/AdvancedReports';
+import { ProtocolReports } from './pages/Reports/ProtocolReports';
 
 // ... (já temos Admin components importados)
 
@@ -53,6 +54,7 @@ export function AppRoutes() {
       <Route path="/armario" element={<Armario />} />
       <Route path="/productivity" element={<Productivity />} />
       <Route path="/reports" element={<AdvancedReports />} />
+      <Route path="/protocol-reports" element={<ProtocolReports />} />
       
       {/* Admin */}
       <Route path="/admin/users" element={<Users />} />

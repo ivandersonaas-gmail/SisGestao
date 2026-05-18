@@ -258,6 +258,16 @@ export const api = {
     if(error) throw error;
     return data || [];
   },
+  async getProtocolReports(startIso, endIso) {
+    let q = supabase.from('movements').select('*, process:processes_view(protocol, requester, type, current_status, assigned_to, latitude, longitude, report_observation)')
+      .in('status', ['ENTRADA', 'ENC_ANALISE', 'DEV_REQUERENTE', 'RETORNO_REQ', 'DISP_RETIRADA', 'FINALIZADO'])
+      .gte('created_at', startIso)
+      .lte('created_at', endIso);
+      
+    const { data, error } = await q.order('created_at', {ascending: false});
+    if(error) throw error;
+    return data || [];
+  },
   async log(type, category, action, user) {
     const payload = {
       user_id: user.id,
