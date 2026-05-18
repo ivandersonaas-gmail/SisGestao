@@ -380,6 +380,22 @@ export function ProcessDetail() {
     }
   };
 
+  const handleDeleteProcess = async () => {
+    const confirmMsg = `⚠️ ATENÇÃO: Tem certeza absoluta de que deseja EXCLUIR este processo (${proc.protocol}) definitivamente?\n\nEsta ação apagará todo o histórico de movimentações e não poderá ser desfeita!`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setLoading(true);
+    try {
+      await api.deleteProcess(proc.id);
+      await api.log('EXCLUIR_PROCESSO', `Processo ${proc.protocol}`, `Registro excluído definitivamente por ${user.name}`, user);
+      alert("Processo excluído com sucesso!");
+      navigate('/processes');
+    } catch (err) {
+      alert("Erro ao excluir processo: " + err.message);
+      setLoading(false);
+    }
+  };
+
   return (
     <>
       {restricaoAtiva && (
@@ -420,7 +436,7 @@ export function ProcessDetail() {
             </table>
             
             {(isSuper || r === 'analyst' || r === 'protocol') && (
-              <div style={{marginTop: '12px', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: '8px'}}>
+              <div style={{marginTop: '12px', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: '8px', flexWrap: 'wrap'}}>
                 {(isMyProc || isSuper) && proc.assigned_to && (
                   <button className="btn btn-outline btn-sm" onClick={() => setIsUnassignOpen(true)} style={{fontSize: '11px', color: 'var(--red)', borderColor: 'var(--red)44'}}>📥 Devolver p/ Armário</button>
                 )}
@@ -435,6 +451,11 @@ export function ProcessDetail() {
                   setEpEmp(proc.empreendimento || '');
                   setIsEditProcOpen(true);
                 }} style={{fontSize: '11px'}}>✏️ Editar Registro</button>
+                {(r === 'protocol' || r === 'admin') && (
+                  <button className="btn btn-danger btn-sm" onClick={handleDeleteProcess} style={{fontSize: '11px'}}>
+                    🗑️ Excluir Protocolo
+                  </button>
+                )}
               </div>
             )}
 

@@ -316,5 +316,20 @@ export const api = {
   async deleteTourScene(id) {
     const { error } = await supabase.from('process_tours').delete().eq('id', id);
     if (error) throw error;
+  },
+
+  async deleteProcess(id) {
+    // 1. Deletar os movimentos vinculados ao processo primeiro (cascata de banco manual)
+    const { error: e1 } = await supabase.from('movements').delete().eq('process_id', id);
+    if (e1) throw e1;
+
+    // 2. Deletar outros possíveis vinculos (tours 360, se houver)
+    await supabase.from('process_tours').delete().eq('process_id', id);
+
+    // 3. Deletar o processo da tabela processes
+    const { error: e2 } = await supabase.from('processes').delete().eq('id', id);
+    if (e2) throw e2;
+
+    return true;
   }
 };
