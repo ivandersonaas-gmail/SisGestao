@@ -108,9 +108,9 @@ export function Productivity() {
       block('🔄','EM ANÁLISE (minha mesa)',emAnalise);
       block('✍️','ENCAMINHADO PARA ASSINATURA',encAssin);
       block('📝', 'PARECER EMITIDO — aguard. requerente', parecer);
-      block('↩️','DEVOLVIDO AO PROTOCOLO COM PARECER',devProtParecer);
-      block('↩️','DEVOLVIDO AO PROTOCOLO COM ANUÊNCIA',devProtAnuencia);
-      block('↩️','DEVOLVIDO AO PROTOCOLO COM ANUÊNCIA DE SOLO',devProtAnuenciaSolo);
+      block('↩️','PARECER > DEVOLVIDO AO PROTOCOLO',devProtParecer);
+      block('↩️','ANUÊNCIA > DEVOLVIDO AO PROTOCOLO',devProtAnuencia);
+      block('↩️','ANUÊNCIA DE SOLO > DEVOLVIDO AO PROTOCOLO',devProtAnuenciaSolo);
       block('↩️','DEVOLVIDO AO PROTOCOLO',devProtSimples);
       block('⏳','AGUARDANDO RETORNO DO REQUERENTE',aguardReq);
       block('📌','ANUÊNCIA EMITIDA',anuencia);
@@ -196,7 +196,7 @@ export function Productivity() {
     });
     const statusOrder = ['EM_ANALISE','ENC_ASSINATURA','PARECER','ANUENCIA','ANUENCIA_SOLO','LIC_COND','ATO_APR','V2_ATO','V2_COND','DEV_PROTOCOLO_PARECER','DEV_PROTOCOLO_ANUENCIA','DEV_PROTOCOLO_ANUENCIA_SOLO','DEV_PROTOCOLO','DEV_REQUERENTE','FINALIZADO'];
     const emoji = {EM_ANALISE:'🔄',ENC_ASSINATURA:'✍️',PARECER:'📝',ANUENCIA:'📌',ANUENCIA_SOLO:'📌',LIC_COND:'📌',ATO_APR:'📌',V2_ATO:'📌',V2_COND:'📌',DEV_PROTOCOLO_PARECER:'↩️',DEV_PROTOCOLO_ANUENCIA:'↩️',DEV_PROTOCOLO_ANUENCIA_SOLO:'↩️',DEV_PROTOCOLO:'↩️',DEV_REQUERENTE:'⏳',FINALIZADO:'✅'};
-    const labelMap = {DEV_PROTOCOLO_PARECER:'DEVOLVIDO AO PROTOCOLO COM PARECER', DEV_PROTOCOLO_ANUENCIA:'DEVOLVIDO AO PROTOCOLO COM ANUÊNCIA', DEV_PROTOCOLO_ANUENCIA_SOLO:'DEVOLVIDO AO PROTOCOLO COM ANUÊNCIA DE SOLO'};
+    const labelMap = {DEV_PROTOCOLO_PARECER:'PARECER > DEVOLVIDO AO PROTOCOLO', DEV_PROTOCOLO_ANUENCIA:'ANUÊNCIA > DEVOLVIDO AO PROTOCOLO', DEV_PROTOCOLO_ANUENCIA_SOLO:'ANUÊNCIA DE SOLO > DEVOLVIDO AO PROTOCOLO'};
     statusOrder.forEach(s => {
       if(!groups[s]) return;
       lines.push(`${emoji[s]||'•'} *${labelMap[s] || (SM[s]?.label || s)}*`);
