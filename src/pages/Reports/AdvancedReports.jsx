@@ -179,6 +179,7 @@ export function AdvancedReports() {
             pareceres: 0, 
             anuencias: 0, 
             assinaturas: 0,
+            atosLicencas: 0,
             finalizados: 0, 
             types: {},
             total: 0 
@@ -191,6 +192,9 @@ export function AdvancedReports() {
         }
         if(m.status === 'ENC_ASSINATURA') {
           analystsMap[uid].assinaturas++;
+        }
+        if(['LIC_COND', 'ATO_APR', 'V2_ATO', 'V2_COND'].includes(m.status)) {
+          analystsMap[uid].atosLicencas++;
         }
       });
 
@@ -206,6 +210,7 @@ export function AdvancedReports() {
             pareceres: 0,
             anuencias: 0,
             assinaturas: 0,
+            atosLicencas: 0,
             finalizados: 0,
             types: {},
             total: 0
@@ -228,7 +233,7 @@ export function AdvancedReports() {
 
       // Recalcular o Total Prod de cada analista com base nas colunas oficiais
       Object.keys(analystsMap).forEach(uid => {
-        analystsMap[uid].total = analystsMap[uid].pareceres + analystsMap[uid].anuencias + analystsMap[uid].assinaturas + analystsMap[uid].finalizados;
+        analystsMap[uid].total = analystsMap[uid].pareceres + analystsMap[uid].anuencias + analystsMap[uid].assinaturas + analystsMap[uid].atosLicencas + analystsMap[uid].finalizados;
       });
       
       const activeTypes = Array.from(activeTypesSet).sort();
@@ -327,6 +332,7 @@ export function AdvancedReports() {
                     <th style={{padding: '10px 4px', textAlign: 'center'}}>Pareceres</th>
                     <th style={{padding: '10px 4px', textAlign: 'center'}}>Anuências</th>
                     <th style={{padding: '10px 4px', textAlign: 'center'}}>Para Assinatura</th>
+                    <th style={{padding: '10px 4px', textAlign: 'center'}}>Atos / Licenças</th>
                     <th style={{padding: '10px 4px', textAlign: 'left'}}>Entregas Finais (Detalhadas)</th>
                     <th style={{padding: '10px 4px', textAlign: 'center'}}>Total Prod.</th>
                   </tr>
@@ -338,6 +344,7 @@ export function AdvancedReports() {
                       <td style={{padding: '10px 4px', textAlign: 'center', verticalAlign: 'top'}}>{a.pareceres}</td>
                       <td style={{padding: '10px 4px', textAlign: 'center', verticalAlign: 'top'}}>{a.anuencias}</td>
                       <td style={{padding: '10px 4px', textAlign: 'center', verticalAlign: 'top'}}>{a.assinaturas}</td>
+                      <td style={{padding: '10px 4px', textAlign: 'center', verticalAlign: 'top'}}>{a.atosLicencas}</td>
                       <td style={{padding: '10px 4px', verticalAlign: 'top'}}>
                         {reportData.activeTypes.filter(t => a.types[t] > 0).length ? (
                           reportData.activeTypes.filter(t => a.types[t] > 0).map(t => (
@@ -347,7 +354,7 @@ export function AdvancedReports() {
                       </td>
                       <td style={{padding: '10px 4px', textAlign: 'center', fontWeight: 'bold', verticalAlign: 'top'}}>{a.total}</td>
                     </tr>
-                  )) : <tr><td colSpan="6"><div className="empty">Nenhuma ação oficial registrada no período.</div></td></tr>}
+                  )) : <tr><td colSpan="7"><div className="empty">Nenhuma ação oficial registrada no período.</div></td></tr>}
                 </tbody>
               </table>
             </div>
