@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "git add backend.py requirements.txt src/components/RAGChat/RAGChat.jsx src/services/documentService.js src/services/ragService.js && git commit --amend --no-edit && git push origin main"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.0",

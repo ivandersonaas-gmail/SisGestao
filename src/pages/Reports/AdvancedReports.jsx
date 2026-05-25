@@ -120,7 +120,16 @@ export function AdvancedReports() {
     try {
       let movs = [];
       if (selectedProcIds.length > 0) {
-        movs = await api.getAdvancedReportsForProcesses(selectedProcIds, isAnalyst, user.id);
+        const rawMovs = await api.getAdvancedReportsForProcesses(selectedProcIds, isAnalyst, user.id);
+        // Agrupar por process_id e manter apenas a movimentação mais recente de cada processo para evitar duplicação no relatório customizado
+        const latestMovsMap = {};
+        rawMovs.forEach(m => {
+          const pid = m.process_id;
+          if (!latestMovsMap[pid] || new Date(m.created_at) > new Date(latestMovsMap[pid].created_at)) {
+            latestMovsMap[pid] = m;
+          }
+        });
+        movs = Object.values(latestMovsMap);
       } else {
         const startIso = startDate + 'T00:00:00';
         const endIso = endDate + 'T23:59:59';
@@ -169,6 +178,7 @@ export function AdvancedReports() {
             name: m.created_by_name, 
             pareceres: 0, 
             anuencias: 0, 
+            assinaturas: 0,
             finalizados: 0, 
             types: {},
             total: 0 
@@ -178,6 +188,9 @@ export function AdvancedReports() {
         if(m.status === 'PARECER') analystsMap[uid].pareceres++;
         if(m.status === 'ANUENCIA') {
           analystsMap[uid].anuencias++; // Apenas ANUENCIA simples conta em Anuências
+        }
+        if(m.status === 'ENC_ASSINATURA') {
+          analystsMap[uid].assinaturas++;
         }
       });
 
@@ -192,6 +205,7 @@ export function AdvancedReports() {
             name: userNamesMap[uid] || m.created_by_name,
             pareceres: 0,
             anuencias: 0,
+            assinaturas: 0,
             finalizados: 0,
             types: {},
             total: 0
@@ -214,7 +228,7 @@ export function AdvancedReports() {
 
       // Recalcular o Total Prod de cada analista com base nas colunas oficiais
       Object.keys(analystsMap).forEach(uid => {
-        analystsMap[uid].total = analystsMap[uid].pareceres + analystsMap[uid].anuencias + analystsMap[uid].finalizados;
+        analystsMap[uid].total = analystsMap[uid].pareceres + analystsMap[uid].anuencias + analystsMap[uid].assinaturas + analystsMap[uid].finalizados;
       });
       
       const activeTypes = Array.from(activeTypesSet).sort();
@@ -312,6 +326,7 @@ export function AdvancedReports() {
                     <th style={{padding: '10px 4px', textAlign: 'left'}}>Analista</th>
                     <th style={{padding: '10px 4px', textAlign: 'center'}}>Pareceres</th>
                     <th style={{padding: '10px 4px', textAlign: 'center'}}>Anuências</th>
+                    <th style={{padding: '10px 4px', textAlign: 'center'}}>Para Assinatura</th>
                     <th style={{padding: '10px 4px', textAlign: 'left'}}>Entregas Finais (Detalhadas)</th>
                     <th style={{padding: '10px 4px', textAlign: 'center'}}>Total Prod.</th>
                   </tr>
@@ -322,6 +337,7 @@ export function AdvancedReports() {
                       <td style={{padding: '10px 4px', verticalAlign: 'top'}}>{a.name}</td>
                       <td style={{padding: '10px 4px', textAlign: 'center', verticalAlign: 'top'}}>{a.pareceres}</td>
                       <td style={{padding: '10px 4px', textAlign: 'center', verticalAlign: 'top'}}>{a.anuencias}</td>
+                      <td style={{padding: '10px 4px', textAlign: 'center', verticalAlign: 'top'}}>{a.assinaturas}</td>
                       <td style={{padding: '10px 4px', verticalAlign: 'top'}}>
                         {reportData.activeTypes.filter(t => a.types[t] > 0).length ? (
                           reportData.activeTypes.filter(t => a.types[t] > 0).map(t => (
@@ -331,7 +347,7 @@ export function AdvancedReports() {
                       </td>
                       <td style={{padding: '10px 4px', textAlign: 'center', fontWeight: 'bold', verticalAlign: 'top'}}>{a.total}</td>
                     </tr>
-                  )) : <tr><td colSpan="5"><div className="empty">Nenhuma ação oficial registrada no período.</div></td></tr>}
+                  )) : <tr><td colSpan="6"><div className="empty">Nenhuma ação oficial registrada no período.</div></td></tr>}
                 </tbody>
               </table>
             </div>

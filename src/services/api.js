@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient';
+import { supabase, supabaseUrl, supabaseKey } from './supabaseClient';
 import { SM } from '../config/constants';
 
 export const api = {
@@ -93,6 +93,48 @@ export const api = {
       .getPublicUrl(fileName);
 
     return publicUrl;
+  },
+
+  async uploadFileWithProgress(file, onProgress) {
+    // Sanitiza o nome do arquivo: remove acentos e caracteres especiais
+    const sanitizedName = file.name
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\w.-]/g, "_");
+
+    const fileName = `${Date.now()}_${sanitizedName}`;
+    const url = `${supabaseUrl}/storage/v1/object/attachments/${fileName}`;
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.setRequestHeader('apikey', supabaseKey);
+      xhr.setRequestHeader('Authorization', `Bearer ${supabaseKey}`);
+      xhr.setRequestHeader('Content-Type', file.type);
+
+      // Evento de progresso de upload
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) {
+          const percentComplete = Math.round((event.loaded / event.total) * 100);
+          onProgress(percentComplete);
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status === 200 || xhr.status === 201) {
+          const publicUrl = `${supabaseUrl}/storage/v1/object/public/attachments/${fileName}`;
+          resolve(publicUrl);
+        } else {
+          reject(new Error(`Erro no servidor: ${xhr.statusText} (${xhr.status})`));
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('Erro na conexão de rede com o servidor.'));
+      };
+
+      xhr.send(file);
+    });
   },
 
   async editMovement(procId, movId, newStatus, newNotes, user, attachmentUrl = null){
@@ -331,5 +373,42 @@ export const api = {
     if (e2) throw e2;
 
     return true;
+  },
+
+  async getProcessChecklist(processId) {
+    const { data, error } = await supabase
+      .from('process_checklists')
+      .select('*')
+      .eq('process_id', processId)
+      .maybeSingle();
+    if (error) {
+      if (error.code === '42P01') {
+        throw new Error('TABELA_INEXISTENTE');
+      }
+      throw error;
+    }
+    return data;
+  },
+
+  async saveProcessChecklist(processId, checklistData) {
+    const { data, error } = await supabase
+      .from('process_checklists')
+      .upsert(
+        { 
+          process_id: processId, 
+          checklist_data: checklistData, 
+          updated_at: new Date().toISOString() 
+        }, 
+        { onConflict: 'process_id' }
+      )
+      .select()
+      .single();
+    if (error) {
+      if (error.code === '42P01') {
+        throw new Error('TABELA_INEXISTENTE');
+      }
+      throw error;
+    }
+    return data;
   }
 };
