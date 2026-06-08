@@ -22,3 +22,23 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python compile files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Backups, tests, drafts and outputs
+*.backup.*
+*.backup
+scratch/
+*_out.txt
+output.txt
+pure_out.txt
+real_out*
+cache_types.txt
+debug_*.py
+test_*.py
+fetch_db.js
+

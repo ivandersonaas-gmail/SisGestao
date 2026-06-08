@@ -8,6 +8,8 @@ export function Armario() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [arm, setArm] = useState([]);
+  const [types, setTypes] = useState([]);
+  const [typeFilter, setTypeFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -20,8 +22,12 @@ export function Armario() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await api.armario({ startDate, endDate });
+      const [data, fetchedTypes] = await Promise.all([
+        api.armario({ startDate, endDate }),
+        api.getProcessTypes()
+      ]);
       setArm(data);
+      setTypes(fetchedTypes);
       setHasSearched(true);
     } catch(e) {
       console.error(e);
@@ -135,14 +141,18 @@ export function Armario() {
 
   const filteredArm = arm.filter(p => {
     const q = search.toLowerCase();
-    return p.protocol.toLowerCase().includes(q) || p.requester.toLowerCase().includes(q);
+    const matchesSearch = p.protocol.toLowerCase().includes(q) || p.requester.toLowerCase().includes(q);
+    const matchesType = typeFilter 
+      ? (typeFilter === 'Comercial' ? p.type.toLowerCase().includes('comercial') : p.type === typeFilter)
+      : true;
+    return matchesSearch && matchesType;
   });
 
   const selectedProcesses = arm.filter(p => selectedIds.includes(p.id));
 
   return (
     <>
-      <div className="alert alert-info" style={{marginBottom: '13px'}}>
+      <div className="alert alert-info no-print" style={{marginBottom: '13px'}}>
         Processos recebidos no setor aguardando analista.
         {isAnalyst && <span> Clique em <strong>Assumir</strong> para iniciar sua análise.</span>}
       </div>
@@ -156,6 +166,18 @@ export function Armario() {
           <div className="fg" style={{flex: 1, minWidth: '140px'}}>
             <label>Data Fim</label>
             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+          </div>
+          <div className="fg" style={{flex: 1, minWidth: '140px'}}>
+             <label>Tipo de Processo</label>
+             <select 
+               value={typeFilter} 
+               onChange={e => setTypeFilter(e.target.value)}
+               style={{height: '40px', fontSize: '13px', width: '100%'}}
+             >
+               <option value="">Todos os tipos</option>
+               <option value="Comercial">Comercial (Todos)</option>
+               {types.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+             </select>
           </div>
           <div className="fg" style={{flex: 2, minWidth: '200px'}}>
              <label>Pesquisar</label>
@@ -180,9 +202,9 @@ export function Armario() {
           <button className="btn btn-outline btn-sm" onClick={() => setPeriodDates('hoje')}>Hoje</button>
           <button className="btn btn-outline btn-sm" onClick={() => setPeriodDates('semana')}>Semana</button>
           <button className="btn btn-outline btn-sm" onClick={() => setPeriodDates('mes')}>Este Mês</button>
-          {(startDate || endDate || search) && (
+          {(startDate || endDate || search || typeFilter) && (
             <button className="btn btn-ghost btn-sm" style={{color: 'var(--red)', marginLeft: 'auto'}} onClick={() => { 
-              setStartDate(''); setEndDate(''); setSearch(''); 
+              setStartDate(''); setEndDate(''); setSearch(''); setTypeFilter('');
               setHasSearched(false);
               loadData();
             }}>
@@ -255,12 +277,17 @@ export function Armario() {
 
       {/* ÁREA DE IMPRESSÃO - RELATÓRIO */}
       {selectedProcesses.length > 0 && (
-        <div className="print-visible" style={{display: 'none'}}>
+        <div className="print-only" style={{display: 'none', marginBottom: '20px'}}>
           <div style={{textAlign: 'center', marginBottom: '20px'}}>
-            <h2 style={{margin: 0}}>Relatório de Processos no Armário</h2>
+            <h2 style={{margin: 0}}>SisGestão - Relatório de Processos no Armário</h2>
             <p style={{color: '#555', margin: '4px 0'}}>
-              Período de Entrada no Setor: {startDate ? startDate.split('-').reverse().join('/') : 'Início'} a {endDate ? endDate.split('-').reverse().join('/') : 'Hoje'}
+              Filtros aplicados: {typeFilter === 'Comercial' ? 'Tipo: Comercial (Todos)' : typeFilter ? `Tipo: ${typeFilter}` : 'Todos os tipos'}
+              {startDate || endDate ? ` | Período: ${startDate ? startDate.split('-').reverse().join('/') : 'Início'} a ${endDate ? endDate.split('-').reverse().join('/') : 'Hoje'}` : ''}
+              {search ? ` | Busca: "${search}"` : ''}
             </p>
+            <div style={{fontSize: '11px', color: '#777', marginTop: '4px'}}>
+              Gerado em: {new Date().toLocaleString('pt-BR')} | Total Selecionado: {selectedProcesses.length} processo(s)
+            </div>
             <hr style={{border: 0, borderBottom: '1px solid #ccc', margin: '15px 0'}} />
           </div>
           
@@ -269,8 +296,8 @@ export function Armario() {
               <tr style={{background: '#f9f9f9', borderBottom: '1px solid #ccc'}}>
                 <th style={{padding: '8px', textAlign: 'left'}}>Protocolo</th>
                 <th style={{padding: '8px', textAlign: 'left'}}>Requerente</th>
-                <th style={{padding: '8px', textAlign: 'left'}}>Assunto</th>
-                <th style={{padding: '8px', textAlign: 'center'}}>Data Entrada</th>
+                <th style={{padding: '8px', textAlign: 'left'}}>Tipo</th>
+                <th style={{padding: '8px', textAlign: 'center'}}>Data Recebido</th>
               </tr>
             </thead>
             <tbody>
@@ -286,9 +313,6 @@ export function Armario() {
               ))}
             </tbody>
           </table>
-          <div style={{marginTop: '20px', fontSize: '11px', color: '#777', textAlign: 'right'}}>
-            Gerado em: {new Date().toLocaleString('pt-BR')}
-          </div>
         </div>
       )}
     </>

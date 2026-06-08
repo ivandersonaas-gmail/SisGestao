@@ -1,7 +1,8 @@
 import { supabase } from './supabaseClient'
 import * as pdfjs from 'pdfjs-dist'
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url'
 
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version || '5.7.284'}/pdf.worker.min.js`
+pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker
 
 export async function generateEmbedding(text) {
   return new Array(384).fill(0)

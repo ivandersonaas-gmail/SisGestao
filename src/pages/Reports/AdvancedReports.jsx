@@ -3,6 +3,16 @@ import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { Badge } from '../../components/UI/Badge';
 
+const getParsedGeoNotes = (obs) => {
+  if (!obs) return '';
+  try {
+    const parsed = JSON.parse(obs);
+    return (parsed && typeof parsed === 'object') ? (parsed.notes || '') : obs;
+  } catch (e) {
+    return obs;
+  }
+};
+
 export function AdvancedReports() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -83,15 +93,35 @@ export function AdvancedReports() {
           const lng = parseFloat(el.getAttribute('data-lng'));
           if (isNaN(lat) || isNaN(lng)) return;
 
+          const drawingsStr = el.getAttribute('data-drawings');
+          let drawings = [];
+          let parsedObs = null;
+          if (drawingsStr) {
+            try {
+              const parsed = JSON.parse(drawingsStr);
+              if (parsed && typeof parsed === 'object') {
+                parsedObs = parsed;
+                drawings = parsed.drawings || [];
+              }
+            } catch (e) {}
+          }
+
+          const mainLabel = parsedObs?.mainLabel;
+          const refLabel = parsedObs?.refLabel;
+          const refLat = parsedObs?.refLat;
+          const refLng = parsedObs?.refLng;
+          const mainCalloutPos = parsedObs?.mainCalloutPos;
+          const refCalloutPos = parsedObs?.refCalloutPos;
+
           const map = window.L.map(el, {
-            zoomControl: false,
-            dragging: false,
-            touchZoom: false,
-            scrollWheelZoom: false,
-            doubleClickZoom: false,
-            boxZoom: false,
-            keyboard: false
-          }).setView([lat, lng], 16);
+            zoomControl: true,
+            dragging: true,
+            touchZoom: true,
+            scrollWheelZoom: true,
+            doubleClickZoom: true,
+            boxZoom: true,
+            keyboard: true
+          });
 
           window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
             attribution: 'Esri'
@@ -105,6 +135,106 @@ export function AdvancedReports() {
           }).addTo(map);
 
           window.L.marker([lat, lng]).addTo(map);
+
+          let cLat = lat + 0.0005;
+          let cLng = lng + 0.0005;
+          if (mainLabel) {
+            cLat = mainCalloutPos ? mainCalloutPos.lat : lat + 0.0005;
+            cLng = mainCalloutPos ? mainCalloutPos.lng : lng + 0.0005;
+            
+            const mainIcon = window.L.divIcon({
+              className: 'custom-report-callout main-report-callout',
+              html: `<div style="background: white; padding: 5px 10px; border: 2px solid #0056b3; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); white-space: nowrap; font-size: 11px; font-weight: bold; color: #0056b3;">${mainLabel}</div>`,
+              iconSize: null
+            });
+            window.L.marker([cLat, cLng], { icon: mainIcon }).addTo(map);
+            window.L.polyline([[lat, lng], [cLat, cLng]], {
+              color: '#0056b3',
+              weight: 1.5,
+              dashArray: '3, 3'
+            }).addTo(map);
+          }
+
+          let rcLat = 0;
+          let rcLng = 0;
+          if (refLat && refLng) {
+            const orangeIcon = window.L.icon({
+              iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
+              shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+              iconSize: [20, 33], iconAnchor: [10, 33], shadowSize: [33, 33]
+            });
+            window.L.marker([refLat, refLng], { icon: orangeIcon }).addTo(map);
+            
+            if (refLabel) {
+              rcLat = refCalloutPos ? refCalloutPos.lat : refLat + 0.0005;
+              rcLng = refCalloutPos ? refCalloutPos.lng : refLng + 0.0005;
+              
+              const refIcon = window.L.divIcon({
+                className: 'custom-report-callout ref-report-callout',
+                html: `<div style="background: white; padding: 5px 10px; border: 2px solid #d97706; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); white-space: nowrap; font-size: 11px; font-weight: bold; color: #d97706;">${refLabel}</div>`,
+                iconSize: null
+              });
+              window.L.marker([rcLat, rcLng], { icon: refIcon }).addTo(map);
+              window.L.polyline([[refLat, refLng], [rcLat, rcLng]], {
+                color: '#d97706',
+                weight: 1.5,
+                dashArray: '3, 3'
+              }).addTo(map);
+            }
+          }
+
+          // Draw any saved lines, polygons or other reference points
+          drawings.forEach(d => {
+            if (d.type === 'marker') {
+              const isMain = Math.abs(d.lat - lat) < 0.00002 && Math.abs(d.lng - lng) < 0.00002;
+              const isRef = refLat && refLng && Math.abs(d.lat - refLat) < 0.00002 && Math.abs(d.lng - refLng) < 0.00002;
+              if (isMain || isRef) return;
+
+              const m = window.L.marker([d.lat, d.lng]).addTo(map);
+              m.bindTooltip(d.text, {
+                permanent: true,
+                direction: 'top',
+                className: 'custom-adaptive-tooltip'
+              }).openTooltip();
+            } else if (d.type === 'line') {
+              window.L.polyline(d.points, { color: '#378ADD', weight: 4 }).addTo(map);
+            } else if (d.type === 'polygon') {
+              window.L.polygon(d.points, { color: '#E15241', fillColor: '#E15241', fillOpacity: 0.3, weight: 3 }).addTo(map);
+            }
+          });
+
+          // Set view using saved center/zoom or fallback to fitBounds
+          const mapZoom = parsedObs?.mapZoom;
+          const mapCenter = parsedObs?.mapCenter;
+          if (mapCenter && typeof mapCenter === 'object' && mapCenter.lat && mapCenter.lng && typeof mapZoom === 'number') {
+            map.setView([mapCenter.lat, mapCenter.lng], mapZoom);
+          } else {
+            const coords = [[lat, lng]];
+            if (mainLabel) {
+              coords.push([cLat, cLng]);
+            }
+            if (refLat && refLng) {
+              coords.push([refLat, refLng]);
+              if (refLabel) {
+                coords.push([rcLat, rcLng]);
+              }
+            }
+            drawings.forEach(d => {
+              if (d.type === 'line' || d.type === 'polygon') {
+                if (Array.isArray(d.points)) {
+                  d.points.forEach(pt => {
+                    if (Array.isArray(pt)) coords.push(pt);
+                    else if (pt && typeof pt === 'object' && pt.lat && pt.lng) coords.push([pt.lat, pt.lng]);
+                  });
+                }
+              } else if (d.type === 'marker') {
+                coords.push([d.lat, d.lng]);
+              }
+            });
+
+            const bounds = window.L.latLngBounds(coords);
+            map.fitBounds(bounds, { padding: [25, 25], maxZoom: 16 });
+          }
         });
       }, 100);
     });
@@ -391,7 +521,7 @@ export function AdvancedReports() {
                           {m.notes && <div style={{fontSize: '11px', color: 'var(--text2)', marginTop: '2px', maxWidth: '300px'}}><i>↳ {m.notes}</i></div>}
                         </td>
                         <td style={{padding: '6px 4px', fontSize: '12px', verticalAlign: 'top', maxWidth: '300px', fontStyle: 'italic', color: 'var(--text2)'}}>
-                          {m.process?.report_observation || '—'}
+                          {getParsedGeoNotes(m.process?.report_observation) || '—'}
                         </td>
                         {!isAnalyst && <td style={{padding: '6px 4px', verticalAlign: 'top'}}><span style={{fontSize: '12px'}}>{m.created_by_name.split(' ')[0]}</span></td>}
                       </tr>
@@ -406,8 +536,27 @@ export function AdvancedReports() {
                                   className="map-print-container" 
                                   data-lat={m.process.latitude} 
                                   data-lng={m.process.longitude} 
-                                  style={{height: '180px', borderRadius: '6px', border: '1px solid #ccc', position: 'relative'}}
+                                  data-drawings={m.process.report_observation}
+                                  style={{height: '220px', borderRadius: '6px', border: '1px solid #ccc', position: 'relative'}}
                                 ></div>
+                                <style>{`
+                                  .custom-adaptive-tooltip {
+                                    background-color: rgba(15, 23, 42, 0.95) !important;
+                                    color: #ffffff !important;
+                                    border: 1px solid #334155 !important;
+                                    border-radius: 6px !important;
+                                    padding: 6px 10px !important;
+                                    font-size: 10px !important;
+                                    font-weight: 500 !important;
+                                    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+                                    white-space: pre-wrap !important;
+                                    max-width: 180px !important;
+                                    text-align: center !important;
+                                  }
+                                  .custom-adaptive-tooltip::before {
+                                    border-top-color: rgba(15, 23, 42, 0.95) !important;
+                                  }
+                                `}</style>
                                 <div style={{fontSize: '10px', color: 'var(--text3)', marginTop: '4px'}}>
                                   Lat: {m.process.latitude} | Lng: {m.process.longitude}
                                 </div>

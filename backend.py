@@ -145,11 +145,19 @@ def processar_pdf_background(temp_path, doc_id, doc_name, job_id):
             print(f"Lendo PDF {doc_name} com LlamaParse (Alta Fidelidade)...")
             from llama_parse import LlamaParse
             
+            system_prompt = (
+                "Este documento contém leis e normas de construção municipais. "
+                "Extraia todo o texto de forma completa e contínua. "
+                "Não ignore, não omita e não resuma nenhuma informação localizada no rodapé ou no final das páginas. "
+                "Toda alínea, inciso e parágrafo deve ser transcrito integralmente."
+            )
+            
             # LlamaParse converte o PDF em Markdown estruturado (mantendo tabelas e artigos)
             parser = LlamaParse(
                 api_key=llama_key,
                 result_type="markdown",
                 language="pt",
+                system_prompt=system_prompt,
                 verbose=True
             )
             
@@ -364,6 +372,267 @@ def ask():
 
     except Exception as e:
         print("ERRO FATAL ASK:", traceback.format_exc())
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+def extrair_texto_da_url(url):
+    try:
+        import requests
+        import pdfplumber
+        import io
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        pdf_file = io.BytesIO(response.content)
+        text = ""
+        with pdfplumber.open(pdf_file) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+        return text
+    except Exception as e:
+        print(f"Erro ao extrair texto da URL {url}: {e}")
+        return ""
+
+@app.route("/api/run_auditoria", methods=["POST"])
+@app.route("/run_auditoria", methods=["POST"])
+def run_auditoria():
+    try:
+        import json
+        payload = request.get_json() or {}
+        checklist_type = payload.get("checklist_type", "residencial")
+        documents = payload.get("documents", {})
+
+        print(f"[Auditoria] Iniciando análise de documentos para checklist {checklist_type}")
+        
+        texts = {}
+        for key, doc_data in documents.items():
+            if not doc_data:
+                continue
+            
+            # Se for uma lista (caso de lic_ambient_files), tratamos separadamente
+            if isinstance(doc_data, list):
+                print(f"[Auditoria] Processando múltiplos arquivos para: {key}")
+                try:
+                    multi_texts = []
+                    for idx, item in enumerate(doc_data):
+                        item_url = item.get("url") if isinstance(item, dict) else item
+                        item_name = item.get("name") if isinstance(item, dict) else f"arquivo_{idx}.pdf"
+                        if item_url:
+                            print(f"[Auditoria] Baixando item: {item_name}")
+                            txt = extrair_texto_da_url(item_url)
+                            if txt:
+                                multi_texts.append(txt)
+                    if multi_texts:
+                        texts[key] = "\n".join(multi_texts)
+                except Exception as e:
+                    print(f"[Auditoria] Erro ao ler lista {key}: {e}")
+                continue
+
+            # Para os arquivos normais (dicionários ou strings)
+            url = doc_data if isinstance(doc_data, str) else doc_data.get("url")
+            name = doc_data.get("name") if isinstance(doc_data, dict) else f"{key}.pdf"
+            
+            if not url:
+                continue
+                
+            print(f"[Auditoria] Processando: {name}")
+            try:
+                txt = extrair_texto_da_url(url)
+                if txt:
+                    texts[key] = txt
+            except Exception as e:
+                print(f"[Auditoria] Erro ao ler {name}: {e}")
+
+        if not texts:
+            return jsonify({"error": "Não foi possível extrair conteúdo textual de nenhum PDF enviado."}), 400
+
+        doc_texts_block = ""
+        for k, text_content in texts.items():
+            doc_texts_block += f"\nDOCUMENTO: {k.upper()}\n\"\"\"\n{text_content}\n\"\"\"\n"
+
+        # Prompt estruturado idêntico ao do frontend
+        prompt_final = f"""Analise o texto extraído de documentos de um processo de licenciamento de obras e retorne um objeto JSON contendo dados extraídos de forma exata e fiel, sem alucinações.
+Abaixo estão os textos extraídos dos documentos disponíveis:
+
+{doc_texts_block}
+
+Você deve preencher a tabela de confrontação de dados e também as informações cadastrais encontradas.
+Retorne APENAS um objeto JSON válido com o seguinte formato estruturado (sem blocos de código markdown ou texto explicativo extra, apenas o JSON bruto):
+{{
+  "confrontacao": {{
+    "lote_certidao": "(lote no documento de certidão)",
+    "lote_bci": "(lote no BCI)",
+    "lote_art_projeto": "(lote na ART de projeto)",
+    "lote_art_execucao": "(lote na ART de execução)",
+    "lote_projeto": "(lote no projeto)",
+    "lote_lic_ambient": "(lote na licença ambiental)",
+    "lote_cnd": "(lote na CND)",
+    "lote_obs": "(observação de lote se houver)",
+    
+    "quadra_certidao": "(quadra na certidão)",
+    "quadra_bci": "(quadra no BCI)",
+    "quadra_art_projeto": "(quadra na ART de projeto)",
+    "quadra_art_execucao": "(quadra na ART de execução)",
+    "quadra_projeto": "(quadra no projeto)",
+    "quadra_lic_ambient": "(quadra na licença ambiental)",
+    "quadra_cnd": "(quadra na CND)",
+    "quadra_obs": "",
+    
+    "loteamento_certidao": "(loteamento na certidão)",
+    "loteamento_bci": "(loteamento no BCI)",
+    "loteamento_art_projeto": "(loteamento na ART de projeto)",
+    "loteamento_art_execucao": "(loteamento na ART de execução)",
+    "loteamento_projeto": "(loteamento no projeto)",
+    "loteamento_lic_ambient": "(loteamento na licença ambiental)",
+    "loteamento_cnd": "(loteamento na CND)",
+    "loteamento_obs": "",
+
+    "bairro_certidao": "(bairro na certidão)",
+    "bairro_bci": "(bairro no BCI)",
+    "bairro_art_projeto": "(bairro na ART de projeto)",
+    "bairro_art_execucao": "(bairro na ART de execução)",
+    "bairro_projeto": "(bairro no projeto)",
+    "bairro_lic_ambient": "(bairro na licença ambiental)",
+    "bairro_cnd": "(bairro na CND)",
+    "bairro_obs": "",
+
+    "area_terreno_certidao": "(área de terreno na certidão)",
+    "area_terreno_bci": "(área de terreno no BCI)",
+    "area_terreno_art_projeto": "(área de terreno na ART projeto)",
+    "area_terreno_art_execucao": "(área de terreno na ART execução)",
+    "area_terreno_projeto": "(área de terreno no projeto)",
+    "area_terreno_lic_ambient": "(área de terreno na licença ambiental)",
+    "area_terreno_cnd": "(área de terreno na CND)",
+    "area_terreno_obs": "",
+
+    "area_const_certidao": "(área de construção na certidão)",
+    "area_const_bci": "(área de construção no BCI)",
+    "area_const_art_projeto": "(área de construção na ART projeto)",
+    "area_const_art_execucao": "(área de construção na ART execução)",
+    "area_const_projeto": "(área de construção no projeto)",
+    "area_const_lic_ambient": "(área de construção na licença ambiental)",
+    "area_const_cnd": "(área de construção na CND)",
+    "area_const_obs": "",
+
+    "requerente_certidao": "(requerente na certidão)",
+    "requerente_bci": "(requerente no BCI)",
+    "requerente_art_projeto": "(requerente na ART projeto)",
+    "requerente_art_execucao": "(requerente na ART execução)",
+    "requerente_projeto": "(requerente no projeto)",
+    "requerente_lic_ambient": "(requerente na licença ambiental)",
+    "requerente_cnd": "(requerente na CND)",
+    "requerente_obs": "",
+
+    "endereco_certidao": "(endereço na certidão)",
+    "endereco_bci": "(endereço no BCI)",
+    "endereco_art_projeto": "(endereço na ART projeto)",
+    "endereco_art_execucao": "(endereço na ART execução)",
+    "endereco_projeto": "(endereço no projeto)",
+    "endereco_lic_ambient": "(endereço na licença ambiental)",
+    "endereco_cnd": "(endereço na CND)",
+    "endereco_obs": ""
+  }},
+  "cadastral": {{
+    "endereco_completo": "(endereço completo da obra)",
+    "proprietario": "(nome do requerente/proprietário)",
+    "cpf_cnpj": "(CPF ou CNPJ do requerente)",
+    "autor_projeto_profissao": "(profissão do autor do projeto, ex: Arquiteto, Engenheiro)",
+    "autor_projeto_nome": "(nome do autor do projeto)",
+    "autor_projeto_orgao": "(órgão conselho, ex: CREA, CAU)",
+    "autor_projeto_rnp": "(número de registro RNP/RN)",
+    "executor_profissao": "(profissão do responsável técnico executor)",
+    "executor_nome": "(nome do responsável técnico executor)",
+    "executor_orgao": "(órgão executor, ex: CREA, CAU)",
+    "executor_rnp": "(registro RNP/RN executor)",
+    "tipo_construcao": "(tipo da construção)",
+    "qtd_unidades": "(quantidade de unidades habitacionais, ex: 1)",
+    "area_construida": "(área construída em m²)",
+    "area_construida_extenso": "(área construída por extenso)",
+    "qtd_pavimentos": "(quantidade de pavimentos)",
+    "qtd_pavimentos_extenso": "(quantidade de pavimentos por extenso)",
+    "qtd_banheiros": "(número de banheiros)",
+    "data_documento": "(data de emissão do documento principal)"
+  }},
+  "checklist_tecnico": {{
+    "taxa_ocupacao_projeto": "(taxa de ocupação no projeto, ex: '0.45')",
+    "coef_aproveitamento_projeto": "(coeficiente de aproveitamento no projeto, ex: '1.2')",
+    "recuo_frontal_projeto": "(recuo frontal no projeto)",
+    "recuo_lateral_projeto": "(recuo lateral no projeto)",
+    "recuo_fundos_projeto": "(recuo de fundos no projeto)",
+    "altura_muro_projeto": "(altura do muro no projeto)",
+    "area_telhado": "(área de telhado para drenagem se houver)",
+    "area_piso_impermeavel": "(área impermeável se houver)"
+  }}{', "projeto_comercial": {' +
+    '"num_pavimentos": "(número de pavimentos em número inteiro)",' +
+    '"testada_total": "(testada total do lote em metros)",' +
+    '"drenagem_distancia_riacho": "(distância a riacho/lagoa, ou \'NSAPL\' se não mencionado)",' +
+    '"drenagem_distancia_canal": "(distância a canal/talvegue, ou \'NSAPL\' se não mencionado)",' +
+    '"art_rrt_atividade_corresponde": "(escreva \'corresponde\' se a atividade do projeto bate com a ART, ou \'nao_corresponde\')",' +
+    '"art_rrt_area_art": "(área descrita na ART)",' +
+    '"art_rrt_area_rrt": "(área descrita na RRT)",' +
+    '"art_rrt_area_projeto": "(área do projeto arquitetônico)",' +
+    '"eiv_terreno_area": "(área do terreno para EIV)",' +
+    '"eiv_construida_area": "(área construída para EIV)",' +
+    '"lixo_pavimentos": "(número de pavimentos para lixo)",' +
+    '"lixo_economias": "(número de economias para lixo)",' +
+    '"pe_direito_sala_name": "(nome do compartimento principal, ex: \'Salão Comercial\')",' +
+    '"pe_direito_sala_area": "(área da sala comercial)",' +
+    '"pe_direito_sala_pe": "(pé-direito da sala comercial)",' +
+    '"pe_direito_jirau_existe": "(\'sim\' se existir mezanino/jirau nos documentos, caso contrário \'nao\')",' +
+    '"pe_direito_jirau_area": "(área do jirau)",' +
+    '"pe_direito_jirau_acima": "(pé-direito acima do jirau)",' +
+    '"pe_direito_jirau_abaixo": "(pé-direito abaixo do jirau)",' +
+    '"medidas_lote_projeto": "(medidas/dimensões do lote no projeto)",' +
+    '"medidas_lote_certidao": "(medidas/dimensões do lote na certidão/escritura)",' +
+    '"confrontantes_frente_projeto": "(confrontante frente no projeto)",' +
+    '"confrontantes_fundos_projeto": "(confrontante fundos no projeto)",' +
+    '"confrontantes_ld_projeto": "(confrontante lado direito no projeto)",' +
+    '"confrontantes_le_projeto": "(confrontante lado esquerdo no projeto)",' +
+    '"confrontantes_frente_certidao": "(confrontante frente na certidão/escritura)",' +
+    '"confrontantes_fundos_certidao": "(confrontante fundos na certidão/escritura)",' +
+    '"confrontantes_ld_certidao": "(confrontante lado direito na certidão/escritura)",' +
+    '"confrontantes_le_certidao": "(confrontante lado esquerdo na certidão/escritura)",' +
+    '"estac_area_total_construida": "(área total construída do estacionamento)",' +
+    '"estac_deducao_garagem": "(área de garagem/estacionamento para dedução)",' +
+    '"estac_deducao_tecnica": "(área técnica/depósitos para dedução)",' +
+    '"estac_deducao_circulacao": "(área de circulação vertical para dedução)",' +
+    '"estac_deducao_lazer": "(área de lazer para dedução)",' +
+    '"estac_deducao_fachada_ativa": "(área de fachada ativa)",' +
+    '"estac_vagas_projeto": "(vagas projetadas)"' +
+    '}' if checklist_type == 'comercial' else (
+    ', "projeto_estacionamento": {' +
+    '"estac_area_total_construida": "(área total construída do estacionamento)",' +
+    '"estac_deducao_garagem": "(área de garagem/estacionamento para dedução)",' +
+    '"estac_deducao_tecnica": "(área técnica/depósitos para dedução)",' +
+    '"estac_deducao_circulacao": "(área de circulação vertical para dedução)",' +
+    '"estac_deducao_lazer": "(área de lazer para dedução)",' +
+    '"estac_deducao_fachada_ativa": "(área de fachada ativa)",' +
+    '"estac_vagas_projeto": "(vagas projetadas)"' +
+    '}') if checklist_type == 'residencial' else ''}
+}}
+"""
+
+        client_gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        response = client_gemini.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt_final,
+            config={
+                "response_mime_type": "application/json"
+            }
+        )
+
+        raw_text = response.text or ""
+        clean_text = raw_text.strip()
+        if clean_text.startswith("```json"):
+            clean_text = clean_text[7:]
+        if clean_text.endswith("```"):
+            clean_text = clean_text[:-3]
+        clean_text = clean_text.strip()
+        
+        parsed_json = json.loads(clean_text)
+        return jsonify(parsed_json), 200
+
+    except Exception as e:
+        print(f"[Auditoria] Erro fatal: {traceback.format_exc()}")
         return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
 
 if __name__ == "__main__":

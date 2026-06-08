@@ -44,9 +44,16 @@ export const api = {
     }
     if(filters.status) q = q.eq('current_status', filters.status)
     if(filters.assignedTo) q = q.eq('analyst_username', filters.assignedTo)
+    if(filters.type) {
+      if(filters.type === 'Comercial') {
+        q = q.ilike('type', '%comercial%')
+      } else {
+        q = q.eq('type', filters.type)
+      }
+    }
     if(filters.search){
       const s = filters.search
-      q = q.or(`protocol.ilike."%${s}%",requester.ilike."%${s}%"`)
+      q = q.or(`protocol.ilike."%${s}%",requester.ilike."%${s}%",analyst_name.ilike."%${s}%"`)
     }
     const {data,error} = await q.order('updated_at', {ascending:false})
     if(error) throw error
@@ -302,13 +309,8 @@ export const api = {
   },
   async getAdvancedReportsForProcesses(processIds, isAnalyst, analystId) {
     let q = supabase.from('movements').select('*, process:processes_view(protocol, requester, type, current_status, assigned_to, latitude, longitude, report_observation)')
-      .in('status', ['PARECER', 'ANUENCIA', 'ANUENCIA_SOLO', 'ENC_ASSINATURA', 'LIC_COND', 'ATO_APR', 'V2_ATO', 'V2_COND', 'ASSINADO'])
       .in('process_id', processIds);
       
-    if(isAnalyst) {
-      q = q.eq('created_by_id', analystId);
-    }
-    
     const { data, error } = await q.order('created_at', {ascending: false});
     if(error) throw error;
     return data || [];

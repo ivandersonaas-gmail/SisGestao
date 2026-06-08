@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../services/api';
@@ -7,9 +7,11 @@ import { Badge } from '../../components/UI/Badge';
 import { Avatar } from '../../components/UI/Avatar';
 import { Modal } from '../../components/UI/Modal';
 import { Tour360 } from '../../components/UI/Tour360';
+import { CardAfastamentos } from '../../components/UI/CardAfastamentos';
 import * as pdfjs from 'pdfjs-dist';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version || '5.7.284'}/pdf.worker.min.js`;
+pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 const ZONAS_ANEXO13 = {
   'eixo1': {
@@ -123,10 +125,43 @@ export function ProcessDetail() {
   const [geoNotes, setGeoNotes] = useState('');
   const [tempLat, setTempLat] = useState(null);
   const [tempLng, setTempLng] = useState(null);
+  const [refLat, setRefLat] = useState(null);
+  const [refLng, setRefLng] = useState(null);
+  const [geoShape, setGeoShape] = useState(null);
   const [geoLoading, setGeoLoading] = useState(false);
   const [geoAlert, setGeoAlert] = useState('');
+  const [mapZoom, setMapZoom] = useState(14);
+  const [mapCenter, setMapCenter] = useState(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapSearch, setMapSearch] = useState('');
+  const [placementMode, setPlacementMode] = useState(null); // 'main', 'ref', or null
+  const [mainLabel, setMainLabel] = useState('📍 Local do Processo');
+  const [refLabel, setRefLabel] = useState('📍 Ponto de Referência');
+  const [mainCalloutLat, setMainCalloutLat] = useState(null);
+  const [mainCalloutLng, setMainCalloutLng] = useState(null);
+  const [refCalloutLat, setRefCalloutLat] = useState(null);
+  const [refCalloutLng, setRefCalloutLng] = useState(null);
+  
+  const placementModeRef = useRef(placementMode);
+  const mainLabelRef = useRef(mainLabel);
+  const refLabelRef = useRef(refLabel);
+  
+  useEffect(() => { placementModeRef.current = placementMode; }, [placementMode]);
+  useEffect(() => {
+    mainLabelRef.current = mainLabel;
+    if (window.pickerMainCallout && window.pickerMainCallout._icon) {
+      const el = window.pickerMainCallout._icon.querySelector('div');
+      if (el) el.innerHTML = `${mainLabel}<br/><small style="font-weight: normal; color: #555;">(Arraste este balão)</small>`;
+    }
+  }, [mainLabel]);
+  
+  useEffect(() => {
+    refLabelRef.current = refLabel;
+    if (window.pickerRefCallout && window.pickerRefCallout._icon) {
+      const el = window.pickerRefCallout._icon.querySelector('div');
+      if (el) el.innerHTML = `${refLabel}<br/><small style="font-weight: normal; color: #555;">(Arraste este balão)</small>`;
+    }
+  }, [refLabel]);
 
   // --- ESTADOS DA AUDITORIA TÉCNICA ---
   const [activeTab, setActiveTab] = useState('tramite'); // tramite, auditoria, tour
@@ -147,6 +182,8 @@ export function ProcessDetail() {
   // Estados para observações detalhadas da tabela de confrontação
   const [activeObsKey, setActiveObsKey] = useState(null); // 'lote', 'quadra', etc.
   const [tempObsVal, setTempObsVal] = useState('');
+
+
 
   // Estrutura padrão do checklist refinado (conforme Imagem 2.2 e dados solicitados)
   const [checklistData, setChecklistData] = useState({
@@ -246,6 +283,7 @@ export function ProcessDetail() {
     },
     projeto_residencial: {
       zona_kmz: '',
+      num_pavimentos: '',
       recuo_frontal: '',
       recuo_lateral: '',
       recuo_fundos: '',
@@ -283,7 +321,21 @@ export function ProcessDetail() {
       art_rrt_atividade_corresponde: '',
       art_rrt_area_art: '',
       art_rrt_area_rrt: '',
-      art_rrt_area_projeto: ''
+      art_rrt_area_projeto: '',
+      estac_area_total_construida: '',
+      estac_deducao_garagem: '',
+      estac_deducao_tecnica: '',
+      estac_deducao_circulacao: '',
+      estac_deducao_lazer: '',
+      estac_deducao_fachada_ativa: '',
+      estac_vagas_projeto: '',
+      afast_nsapl: false,
+      afast_esquina: 'nao',
+      afast_adota_alinhamento: false,
+      afast_frontal1: '',
+      afast_frontal2: '',
+      afast_lateral: '',
+      afast_fundos: ''
     },
     projeto_comercial: {
       zona_kmz: '',
@@ -324,7 +376,14 @@ export function ProcessDetail() {
       pe_direito_jirau_existe: '',
       pe_direito_jirau_area: '',
       pe_direito_jirau_acima: '',
-      pe_direito_jirau_abaixo: ''
+      pe_direito_jirau_abaixo: '',
+      afast_nsapl: false,
+      afast_esquina: 'nao',
+      afast_adota_alinhamento: false,
+      afast_frontal1: '',
+      afast_frontal2: '',
+      afast_lateral: '',
+      afast_fundos: ''
     }
   });
 
@@ -460,7 +519,7 @@ export function ProcessDetail() {
           loadedChecklist.projeto_residencial = {};
         }
         loadedChecklist.projeto_residencial = {
-          zona_kmz: '', recuo_frontal: '', recuo_lateral: '', recuo_fundos: '', taxa_ocupacao: '', coef_aproveitamento: '', projeto_assinado: false,
+          zona_kmz: '', num_pavimentos: '', recuo_frontal: '', recuo_lateral: '', recuo_fundos: '', taxa_ocupacao: '', coef_aproveitamento: '', projeto_assinado: false,
           tsn_area_terreno: '', tsn_area_projeto: '', tsn_taxa_anexo13: '', tsn_resultado: '',
           ca_area_terreno: '', ca_area_construida: '', ca_projeto: '', ca_resultado: '',
           medidas_lote_projeto: '', medidas_lote_certidao: '',
@@ -470,6 +529,10 @@ export function ProcessDetail() {
           testada_total: '', qtd_arvores: '',
           drenagem_alagavel: '', drenagem_risco: '', drenagem_distancia_riacho: '', drenagem_distancia_canal: '',
           art_rrt_atividade_corresponde: '', art_rrt_area_art: '', art_rrt_area_rrt: '', art_rrt_area_projeto: '',
+          estac_area_total_construida: '', estac_deducao_garagem: '', estac_deducao_tecnica: '', estac_deducao_circulacao: '',
+          estac_deducao_lazer: '', estac_deducao_fachada_ativa: '', estac_vagas_projeto: '',
+          afast_nsapl: false, afast_esquina: 'nao', afast_adota_alinhamento: false, afast_frontal1: '', afast_frontal2: '', afast_lateral: '', afast_fundos: '',
+          ...loadedChecklist.projeto_residencial
         };
         if (!loadedChecklist.projeto_comercial) {
           loadedChecklist.projeto_comercial = {};
@@ -481,11 +544,20 @@ export function ProcessDetail() {
           ca_area_terreno: '', ca_area_construida: '', ca_projeto: '', ca_resultado: '',
           medidas_lote_projeto: '', medidas_lote_certidao: '',
           confrontantes_escritura: '', confrontantes_frente: '', confrontantes_fundos: '', confrontantes_direito: '', confrontantes_esquerdo: '',
+          confrontantes_frente_projeto: '', confrontantes_fundos_projeto: '', confrontantes_ld_projeto: '', confrontantes_le_projeto: '',
+          confrontantes_frente_certidao: '', confrontantes_fundos_certidao: '', confrontantes_ld_certidao: '', confrontantes_le_certidao: '',
           testada_total: '', qtd_arvores: '',
+          drenagem_alagavel: '', drenagem_risco: '', drenagem_distancia_riacho: '', drenagem_distancia_canal: '',
+          art_rrt_atividade_corresponde: '', art_rrt_area_art: '', art_rrt_area_rrt: '', art_rrt_area_projeto: '',
           eiv_terreno_area: '', eiv_construida_area: '',
           lixo_pavimentos: '', lixo_economias: '',
           pe_direito_sala_nome: '', pe_direito_sala_area: '', pe_direito_sala_pe: '',
           pe_direito_jirau_existe: '', pe_direito_jirau_area: '', pe_direito_jirau_acima: '', pe_direito_jirau_abaixo: '',
+          area_comum_comercial: null, revestimento_ceramico: null, tinta_impermeavel: null,
+          prisma_nsapl: 'APLICAVEL', distancia_lote_vizinho: '', prisma_altura_h: '', prisma_resultado: '',
+          estac_area_total_construida: '', estac_deducao_garagem: '', estac_deducao_tecnica: '', estac_deducao_circulacao: '',
+          estac_deducao_lazer: '', estac_deducao_fachada_ativa: '', estac_vagas_projeto: '',
+          afast_nsapl: false, afast_esquina: 'nao', afast_adota_alinhamento: false, afast_frontal1: '', afast_frontal2: '', afast_lateral: '', afast_fundos: '',
           ...loadedChecklist.projeto_comercial
         };
         setChecklistData(loadedChecklist);
@@ -515,7 +587,7 @@ export function ProcessDetail() {
     }
   };
 
-  const handleSaveChecklist = async (dataToSave = checklistData) => {
+  const handleSaveChecklist = async (dataToSave = checklistData, silent = false) => {
     setSaveLoading(true);
     try {
       const docsCopy = { ...dataToSave.documentos };
@@ -579,7 +651,10 @@ export function ProcessDetail() {
         type: checklistType
       };
       await api.saveProcessChecklist(id, payload);
-      alert('Auditoria técnica salva com sucesso!');
+      if (!silent) {
+        alert('Auditoria técnica salva com sucesso!');
+      }
+      return finalData;
     } catch (err) {
       if (err.message === 'TABELA_INEXISTENTE') {
         setSqlMissingError(true);
@@ -587,6 +662,7 @@ export function ProcessDetail() {
       } else {
         alert('Erro ao salvar auditoria: ' + err.message);
       }
+      throw err;
     } finally {
       setSaveLoading(false);
     }
@@ -603,181 +679,93 @@ export function ProcessDetail() {
         const pageText = textContent.items.map(item => item.str).join(' ');
         fullText += pageText + '\n';
       }
+      console.log(`[OCR/PDF] Arquivo: ${file.name} | Caracteres extraídos: ${fullText.length}`);
       return fullText;
     } catch (err) {
       console.error('Error extracting text:', err);
-      throw new Error(`Falha ao extrair texto de ${file.name}`);
+      throw new Error(`Falha ao extrair texto de ${file.name}. Detalhe: ${err.message}`);
     }
   };
 
   const handleRunAuditoria = async () => {
-    const fileKeys = Object.keys(uploadedFiles);
-    if (fileKeys.length === 0) {
-      alert('Por favor, anexe ao menos um arquivo PDF na seção de documentos para iniciar a auditoria automatizada.');
-      return;
-    }
-
     setExtractionLoading(true);
-    setExtractionProgress('Lendo e extraindo textos dos arquivos PDF anexados...');
-    
+    setExtractionProgress('Salvando arquivos locais e preparando auditoria técnica...');
+
     try {
-      const texts = {};
-      for (const key of fileKeys) {
-        setExtractionProgress(`Extraindo texto do documento: ${key.toUpperCase()}...`);
-        const file = uploadedFiles[key];
-        texts[key] = await extractTextFromPdf(file);
-      }
-
-      setExtractionProgress('Enviando dados estruturados para análise da IA (Gemini)...');
+      // 1. Salvar os arquivos pendentes localmente para obter as URLs do Supabase
+      const finalChecklistData = await handleSaveChecklist(checklistData, true);
       
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error('Chave de API do Gemini não configurada no cliente.');
-      }
+      // 2. Mapear os documentos que possuem URL pública no Supabase
+      const docsToSend = {};
+      const docKeys = [
+        'protocolo', 'bci', 'identificacao_proprietario', 'cnd', 'art_projeto',
+        'inteiro_teor', 'art_execucao', 'contrato_compra_venda', 'pf_identificacao',
+        'pf_procurador', 'pf_procuracao', 'pj_contrato_social', 'pj_cnpj',
+        'pj_anuencia_socios', 'pj_identificacao_representante'
+      ];
 
-      // Monta os blocos de texto para enviar ao prompt
-      let docTextsBlock = '';
-      Object.keys(texts).forEach(key => {
-        docTextsBlock += `\nDOCUMENTO: ${key.toUpperCase()}\n"""\n${texts[key]}\n"""\n`;
+      docKeys.forEach(key => {
+        const doc = finalChecklistData.documentos[key];
+        if (doc && doc.url && doc.status === 'apresentado') {
+          docsToSend[key] = {
+            url: doc.url,
+            name: doc.name || `${key}.pdf`
+          };
+        }
       });
 
-      const prompt = `
-Analise o texto extraído de documentos de um processo de licenciamento de obras e retorne um objeto JSON contendo dados extraídos de forma exata e fiel, sem alucinações.
-Abaixo estão os textos extraídos dos documentos disponíveis:
-
-${docTextsBlock}
-
-Você deve preencher a tabela de confrontação de dados e também as informações cadastrais encontradas.
-Retorne APENAS um objeto JSON válido (sem markdown tags adicionais, sem bloco de código, sem "json" no início, apenas o JSON bruto) com o seguinte formato estruturado:
-{
-  "confrontacao": {
-    "lote_certidao": "(lote no documento de certidão)",
-    "lote_bci": "(lote no BCI)",
-    "lote_art_projeto": "(lote na ART de projeto)",
-    "lote_art_execucao": "(lote na ART de execução)",
-    "lote_projeto": "(lote no projeto)",
-    "lote_lic_ambient": "(lote na licença ambiental)",
-    "lote_cnd": "(lote na CND)",
-    "lote_obs": "(observação de lote se houver)",
-    
-    "quadra_certidao": "(quadra na certidão)",
-    "quadra_bci": "(quadra no BCI)",
-    "quadra_art_projeto": "(quadra na ART de projeto)",
-    "quadra_art_execucao": "(quadra na ART de execução)",
-    "quadra_projeto": "(quadra no projeto)",
-    "quadra_lic_ambient": "(quadra na licença ambiental)",
-    "quadra_cnd": "(quadra na CND)",
-    "quadra_obs": "",
-    
-    "loteamento_certidao": "(loteamento na certidão)",
-    "loteamento_bci": "(loteamento no BCI)",
-    "loteamento_art_projeto": "(loteamento na ART de projeto)",
-    "loteamento_art_execucao": "(loteamento na ART de execução)",
-    "loteamento_projeto": "(loteamento no projeto)",
-    "loteamento_lic_ambient": "(loteamento na licença ambiental)",
-    "loteamento_cnd": "(loteamento na CND)",
-    "loteamento_obs": "",
-
-    "bairro_certidao": "(bairro na certidão)",
-    "bairro_bci": "(bairro no BCI)",
-    "bairro_art_projeto": "(bairro na ART de projeto)",
-    "bairro_art_execucao": "(bairro na ART de execução)",
-    "bairro_projeto": "(bairro no projeto)",
-    "bairro_lic_ambient": "(bairro na licença ambiental)",
-    "bairro_cnd": "(bairro na CND)",
-    "bairro_obs": "",
-
-    "area_terreno_certidao": "(área de terreno na certidão)",
-    "area_terreno_bci": "(área de terreno no BCI)",
-    "area_terreno_art_projeto": "(área de terreno na ART projeto)",
-    "area_terreno_art_execucao": "(área de terreno na ART execução)",
-    "area_terreno_projeto": "(área de terreno no projeto)",
-    "area_terreno_lic_ambient": "(área de terreno na licença ambiental)",
-    "area_terreno_cnd": "(área de terreno na CND)",
-    "area_terreno_obs": "",
-
-    "area_const_certidao": "(área de construção na certidão)",
-    "area_const_bci": "(área de construção no BCI)",
-    "area_const_art_projeto": "(área de construção na ART projeto)",
-    "area_const_art_execucao": "(área de construção na ART execução)",
-    "area_const_projeto": "(área de construção no projeto)",
-    "area_const_lic_ambient": "(área de construção na licença ambiental)",
-    "area_const_cnd": "(área de construção na CND)",
-    "area_const_obs": "",
-
-    "requerente_certidao": "(requerente na certidão)",
-    "requerente_bci": "(requerente no BCI)",
-    "requerente_art_projeto": "(requerente na ART projeto)",
-    "requerente_art_execucao": "(requerente na ART execução)",
-    "requerente_projeto": "(requerente no projeto)",
-    "requerente_lic_ambient": "(requerente na licença ambiental)",
-    "requerente_cnd": "(requerente na CND)",
-    "requerente_obs": "",
-
-    "endereco_certidao": "(endereço na certidão)",
-    "endereco_bci": "(endereço no BCI)",
-    "endereco_art_projeto": "(endereço na ART projeto)",
-    "endereco_art_execucao": "(endereço na ART execução)",
-    "endereco_projeto": "(endereço no projeto)",
-    "endereco_lic_ambient": "(endereço na licença ambiental)",
-    "endereco_cnd": "(endereço na CND)",
-    "endereco_obs": ""
-  },
-  "cadastral": {
-    "endereco_completo": "(endereço completo da obra)",
-    "proprietario": "(nome do requerente/proprietário)",
-    "cpf_cnpj": "(CPF ou CNPJ do requerente)",
-    "autor_projeto_profissao": "(profissão do autor do projeto, ex: Arquiteto, Engenheiro)",
-    "autor_projeto_nome": "(nome do autor do projeto)",
-    "autor_projeto_orgao": "(órgão conselho, ex: CREA, CAU)",
-    "autor_projeto_rnp": "(número de registro RNP/RN)",
-    "executor_profissao": "(profissão do responsável técnico executor)",
-    "executor_nome": "(nome do responsável técnico executor)",
-    "executor_orgao": "(órgão executor, ex: CREA, CAU)",
-    "executor_rnp": "(registro RNP/RN executor)",
-    "tipo_construcao": "(tipo da construção)",
-    "qtd_unidades": "(quantidade de unidades habitacionais, ex: 1)",
-    "area_construida": "(área construída em m²)",
-    "area_construida_extenso": "(área construída por extenso)",
-    "qtd_pavimentos": "(quantidade de pavimentos)",
-    "qtd_pavimentos_extenso": "(quantidade de pavimentos por extenso)",
-    "qtd_banheiros": "(número de banheiros)",
-    "data_documento": "(data de emissão do documento principal)"
-  },
-  "checklist_tecnico": {
-    "taxa_ocupacao_projeto": "(taxa de ocupação no projeto, ex: '0.45')",
-    "coef_aproveitamento_projeto": "(coeficiente de aproveitamento no projeto, ex: '1.2')",
-    "recuo_frontal_projeto": "(recuo frontal no projeto)",
-    "recuo_lateral_projeto": "(recuo lateral no projeto)",
-    "recuo_fundos_projeto": "(recuo de fundos no projeto)",
-    "altura_muro_projeto": "(altura do muro no projeto)",
-    "area_telhado": "(área de telhado para drenagem se houver)",
-    "area_piso_impermeavel": "(área impermeável se houver)"
-  }
-}
-`;
-
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            responseMimeType: "application/json"
+      // Tratar arquivos de Licença Ambiental
+      if (Array.isArray(finalChecklistData.documentos.lic_ambient_files)) {
+        const licFiles = [];
+        finalChecklistData.documentos.lic_ambient_files.forEach(docItem => {
+          if (docItem.url) {
+            licFiles.push({
+              url: docItem.url,
+              name: docItem.name || 'lic_ambient.pdf'
+            });
           }
+        });
+        if (licFiles.length > 0) {
+          docsToSend.lic_ambient_files = licFiles;
+        }
+      }
+
+      if (Object.keys(docsToSend).length === 0) {
+        alert('Por favor, anexe ou garanta que há ao menos um arquivo PDF carregado na seção de documentos para iniciar a auditoria automatizada.');
+        setExtractionLoading(false);
+        return;
+      }
+
+      setExtractionProgress('Enviando documentos para processamento e análise no backend Python (Flask)...');
+
+      // 3. Fazer requisição ao Backend local em Flask
+      const backendRes = await fetch('http://127.0.0.1:8000/api/run_auditoria', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          checklist_type: checklistType,
+          documents: docsToSend
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`Falha de comunicação com a API do Gemini: ${response.statusText}`);
+      if (!backendRes.ok) {
+        let errMsg = 'Falha no processamento da auditoria.';
+        try {
+          const errData = await backendRes.json();
+          errMsg = errData.error || errMsg;
+        } catch (_) {}
+        throw new Error(errMsg);
       }
 
-      const resData = await response.json();
-      const rawText = resData.candidates[0].content.parts[0].text;
-      const parsedJson = JSON.parse(rawText.trim());
+      const parsedJson = await backendRes.json();
+      console.log('[Auditoria Backend] Resposta estruturada do Gemini:', parsedJson);
+
+      // 4. Mesclar os resultados extraídos de volta no estado
 
       // Mescla a confrontação extraída
-      const newConf = { ...checklistData.confrontacao };
+      const newConf = { ...finalChecklistData.confrontacao };
       if (parsedJson.confrontacao) {
         Object.keys(parsedJson.confrontacao).forEach(k => {
           const val = parsedJson.confrontacao[k];
@@ -788,7 +776,7 @@ Retorne APENAS um objeto JSON válido (sem markdown tags adicionais, sem bloco d
       }
 
       // Mescla os dados cadastrais extraídos
-      const newCadastral = { ...checklistData.cadastral };
+      const newCadastral = { ...finalChecklistData.cadastral };
       if (parsedJson.cadastral) {
         Object.keys(parsedJson.cadastral).forEach(k => {
           const val = parsedJson.cadastral[k];
@@ -799,7 +787,7 @@ Retorne APENAS um objeto JSON válido (sem markdown tags adicionais, sem bloco d
       }
 
       // Mescla o checklist técnico
-      const newTech = { ...checklistData.checklist_tecnico };
+      const newTech = { ...finalChecklistData.checklist_tecnico };
       if (parsedJson.checklist_tecnico) {
         const t = parsedJson.checklist_tecnico;
         if (t.taxa_ocupacao_projeto) newTech.projeto_arquitetonico.taxa_ocupacao_projeto = t.taxa_ocupacao_projeto;
@@ -812,33 +800,43 @@ Retorne APENAS um objeto JSON válido (sem markdown tags adicionais, sem bloco d
         if (t.area_piso_impermeavel) newTech.drenagem.area_piso_impermeavel = t.area_piso_impermeavel;
       }
 
-      // Atualiza o status dos arquivos na lista do checklist
-      const newDocs = { ...checklistData.documentos };
-      fileKeys.forEach(k => {
-        if (newDocs[k]) {
-          newDocs[k].status = 'apresentado';
-          newDocs[k].name = uploadedFiles[k].name;
-        }
-      });
-      // Se subiu licença ambiental, garante que marcou existe_lic_ambient como 'sim'
-      if (uploadedFiles.lic_ambient) {
-        newDocs.existe_lic_ambient = 'sim';
-        newDocs.lic_ambient_name = uploadedFiles.lic_ambient.name;
+      // Mescla o projeto comercial se aplicável
+      const newComercial = { ...finalChecklistData.projeto_comercial };
+      if (checklistType === 'comercial' && parsedJson.projeto_comercial) {
+        Object.keys(parsedJson.projeto_comercial).forEach(k => {
+          const val = parsedJson.projeto_comercial[k];
+          if (val && val !== '—') {
+            newComercial[k] = val;
+          }
+        });
+      }
+
+      // Mescla o projeto residencial se aplicável
+      const newResidencial = { ...finalChecklistData.projeto_residencial };
+      if (checklistType === 'residencial' && parsedJson.projeto_estacionamento) {
+        Object.keys(parsedJson.projeto_estacionamento).forEach(k => {
+          const val = parsedJson.projeto_estacionamento[k];
+          if (val && val !== '—') {
+            newResidencial[k] = val;
+          }
+        });
       }
 
       const updatedChecklistData = {
-        ...checklistData,
+        ...finalChecklistData,
         confrontacao: newConf,
         cadastral: newCadastral,
-        documentos: newDocs,
-        checklist_tecnico: newTech
+        checklist_tecnico: newTech,
+        projeto_comercial: newComercial,
+        projeto_residencial: newResidencial
       };
 
       setChecklistData(updatedChecklistData);
       setExtractionProgress('Processamento e extração concluídos com sucesso!');
       setTimeout(() => setExtractionProgress(''), 3000);
 
-      await handleSaveChecklist(updatedChecklistData);
+      // Salva os dados finais no banco e exibe o popup de sucesso
+      await handleSaveChecklist(updatedChecklistData, false);
 
     } catch (err) {
       alert('Erro durante a extração técnica: ' + err.message);
@@ -908,38 +906,423 @@ Retorne APENAS um objeto JSON válido (sem markdown tags adicionais, sem bloco d
       }
     });
 
-    // 3. Parâmetros urbanísticos
-    const proj = checklistData.checklist_tecnico.projeto_arquitetonico;
-    if (checkParametro('max', proj.taxa_ocupacao_projeto, proj.taxa_ocupacao_max) === 'falha') {
-      pendencias.push(`- Taxa de Ocupação do projeto (${proj.taxa_ocupacao_projeto}) extrapola o limite máximo permitido (${proj.taxa_ocupacao_max}).`);
-    }
-    if (checkParametro('max', proj.coef_aproveitamento_projeto, proj.coef_aproveitamento_max) === 'falha') {
-      pendencias.push(`- Coeficiente de Aproveitamento do projeto (${proj.coef_aproveitamento_projeto}) ultrapassa o máximo permitido (${proj.coef_aproveitamento_max}).`);
-    }
-    if (checkParametro('min', proj.recuo_frontal_projeto, proj.recuo_frontal_min) === 'falha') {
-      pendencias.push(`- Recuo Frontal do projeto (${proj.recuo_frontal_projeto}m) é inferior ao mínimo obrigatório (${proj.recuo_frontal_min}m).`);
-    }
-    if (checkParametro('min', proj.recuo_lateral_projeto, proj.recuo_lateral_min) === 'falha') {
-      pendencias.push(`- Recuo Lateral do projeto (${proj.recuo_lateral_projeto}m) é inferior ao mínimo obrigatório de (${proj.recuo_lateral_min}m).`);
-    }
-    if (checkParametro('min', proj.recuo_fundos_projeto, proj.recuo_fundos_min) === 'falha') {
-      pendencias.push(`- Recuo de Fundos do projeto (${proj.recuo_fundos_projeto}m) é inferior ao mínimo obrigatório de (${proj.recuo_fundos_min}m).`);
-    }
-    if (checkParametro('max', proj.altura_muro_projeto, proj.altura_muro_max) === 'falha') {
-      pendencias.push(`- Altura do muro frontal (${proj.altura_muro_projeto}m) excede o limite máximo permitido de (${proj.altura_muro_max}m).`);
+    // 3. Parâmetros urbanísticos e Drenagem por Modalidade
+    if (checklistType === 'residencial') {
+      const proj = checklistData.checklist_tecnico.projeto_arquitetonico;
+      if (checkParametro('max', proj.taxa_ocupacao_projeto, proj.taxa_ocupacao_max) === 'falha') {
+        pendencias.push(`- Taxa de Ocupação do projeto (${proj.taxa_ocupacao_projeto}) extrapola o limite máximo permitido (${proj.taxa_ocupacao_max}).`);
+      }
+      if (checkParametro('max', proj.coef_aproveitamento_projeto, proj.coef_aproveitamento_max) === 'falha') {
+        pendencias.push(`- Coeficiente de Aproveitamento do projeto (${proj.coef_aproveitamento_projeto}) ultrapassa o máximo permitido (${proj.coef_aproveitamento_max}).`);
+      }
+      if (checkParametro('min', proj.recuo_frontal_projeto, proj.recuo_frontal_min) === 'falha') {
+        pendencias.push(`- Recuo Frontal do projeto (${proj.recuo_frontal_projeto}m) é inferior ao mínimo obrigatório (${proj.recuo_frontal_min}m).`);
+      }
+      if (checkParametro('min', proj.recuo_lateral_projeto, proj.recuo_lateral_min) === 'falha') {
+        pendencias.push(`- Recuo Lateral do projeto (${proj.recuo_lateral_projeto}m) é inferior ao mínimo obrigatório de (${proj.recuo_lateral_min}m).`);
+      }
+      if (checkParametro('min', proj.recuo_fundos_projeto, proj.recuo_fundos_min) === 'falha') {
+        pendencias.push(`- Recuo de Fundos do projeto (${proj.recuo_fundos_projeto}m) é inferior ao mínimo obrigatório de (${proj.recuo_fundos_min}m).`);
+      }
+      if (checkParametro('max', proj.altura_muro_projeto, proj.altura_muro_max) === 'falha') {
+        pendencias.push(`- Altura do muro frontal (${proj.altura_muro_projeto}m) excede o limite máximo permitido de (${proj.altura_muro_max}m).`);
+      }
+
+      // Validação unificada de Afastamentos para residencial
+      const pcRes = checklistData.projeto_residencial || {};
+      const numPavRes = parseInt(pcRes.num_pavimentos) || 0;
+      const zonaKeyRes = pcRes.zona_kmz || '';
+      const nsaplRes = pcRes.afast_nsapl || false;
+
+      if (!nsaplRes && zonaKeyRes) {
+        const REGRAS_ZONA_LOCAL = {
+          eixo1:     { frontalAte2: 'alinhamento', frontal3a4: 3.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: true },
+          intensivo: { frontalAte2: 3.0,           frontal3a4: 5.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: false },
+          eixo2:     { frontalAte2: 'alinhamento', frontal3a4: 3.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: true },
+          moderado:  { frontalAte2: 3.0,           frontal3a4: 5.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: false },
+          historica: { frontalAte2: 'alinhamento', frontal3a4: 5.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: true },
+          transicao1:{ frontalAte2: 4.0,           frontal3a4: 5.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: false },
+          transicao2:{ frontalAte2: 10.0,          frontal3a4: 10.0,frontalAFI: null,latFundAte2: 3.0, latFundALFI: null, usaAlinhamento: false },
+        };
+
+        const regra = REGRAS_ZONA_LOCAL[zonaKeyRes];
+        if (regra) {
+          let frontalExig = null;
+          let latFundExig = null;
+          let bloqueio = false;
+          let avisoHotel = false;
+
+          if (zonaKeyRes === 'transicao2') {
+            if (numPavRes > 4) bloqueio = true;
+            else if (numPavRes >= 3) {
+              avisoHotel = true;
+              frontalExig = 10.0;
+              latFundExig = 10.0;
+            } else {
+              frontalExig = 10.0;
+              latFundExig = 3.0;
+            }
+          } else {
+            if (numPavRes <= 2) {
+              frontalExig = regra.frontalAte2;
+              latFundExig = 0;
+            } else if (numPavRes <= 4) {
+              frontalExig = regra.frontal3a4;
+              latFundExig = 2.0;
+            } else {
+              frontalExig = regra.frontalAFI + (numPavRes - 4) * 0.20;
+              latFundExig = regra.latFundALFI + (numPavRes - 4) * 0.20;
+            }
+          }
+
+          if (bloqueio) {
+            pendencias.push(`- [AFASTAMENTOS] GABARITO NÃO PERMITIDO: Edificações acima de 04 pavimentos na Zona de Transição 2 são expressamente PROIBIDAS (Art. 148, III).`);
+          } else {
+            if (avisoHotel) {
+              pendencias.push(`- [AFASTAMENTOS] ATENÇÃO: Edificações de 3 a 4 pavimentos na Zona de Transição 2 são permitidas APENAS para equipamentos especiais de hotelaria e resorts (Art. 148, II). Verifique o uso.`);
+            }
+
+            const usaAlinhamento = regra.usaAlinhamento && numPavRes <= 2;
+            const adotaAlinhamento = pcRes.afast_adota_alinhamento || false;
+
+            if (usaAlinhamento && adotaAlinhamento) {
+              pendencias.push(`- [AFASTAMENTOS] Condicionado: Apresentar Memorial Justificativo Simplificado contendo planta da quadra com locação das edificações vizinhas e Levantamento Fotográfico (Art. 142, Parágrafo Único).`);
+            } else {
+              const pF1 = parseFloat(pcRes.afast_frontal1?.toString().replace(',', '.')) || 0;
+              const pF2 = parseFloat(pcRes.afast_frontal2?.toString().replace(',', '.')) || 0;
+              const pLat = parseFloat(pcRes.afast_lateral?.toString().replace(',', '.')) || 0;
+              const pFund = parseFloat(pcRes.afast_fundos?.toString().replace(',', '.')) || 0;
+
+              if (typeof frontalExig === 'number') {
+                if (!pcRes.afast_frontal1 || pF1 < frontalExig) {
+                  pendencias.push(`- Recuo Frontal Projetado (${pF1}m) é inferior ao exigido de ${frontalExig.toFixed(2)}m.`);
+                }
+                if (pcRes.afast_esquina === 'sim' && (!pcRes.afast_frontal2 || pF2 < frontalExig)) {
+                  pendencias.push(`- Recuo Frontal Projetado (Testada Secundária: ${pF2}m) é inferior ao exigido de ${frontalExig.toFixed(2)}m.`);
+                }
+              }
+              if (latFundExig > 0) {
+                if (!pcRes.afast_lateral || pLat < latFundExig) {
+                  pendencias.push(`- Recuo Lateral Projetado (${pLat}m) é inferior ao exigido de ${latFundExig.toFixed(2)}m.`);
+                }
+                if (!pcRes.afast_fundos || pFund < latFundExig) {
+                  pendencias.push(`- Recuo de Fundos Projetado (${pFund}m) é inferior ao exigido de ${latFundExig.toFixed(2)}m.`);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      const reqVol = parseFloat(calcAmortecimentoRequerido());
+      const projVol = parseFloat(checklistData.checklist_tecnico.drenagem.amortecimento_projeto?.toString().replace(',', '.'));
+      if (!isNaN(reqVol) && !isNaN(projVol) && projVol < reqVol) {
+        pendencias.push(`- Volume de detenção/amortecimento pluvial (${projVol}m³) é inferior ao mínimo requerido pela Lei 1024/2003 (${reqVol}m³).`);
+      }
+
+      // Validação de vagas de estacionamento
+      const resEstacAreaTotal = parseFloat(checklistData.projeto_residencial?.estac_area_total_construida?.toString().replace(',', '.')) || 0;
+      if (resEstacAreaTotal > 0) {
+        const resEstacDedGaragem = parseFloat(checklistData.projeto_residencial?.estac_deducao_garagem?.toString().replace(',', '.')) || 0;
+        const resEstacDedTecnica = parseFloat(checklistData.projeto_residencial?.estac_deducao_tecnica?.toString().replace(',', '.')) || 0;
+        const resEstacDedCirculacao = parseFloat(checklistData.projeto_residencial?.estac_deducao_circulacao?.toString().replace(',', '.')) || 0;
+        const resEstacDedLazer = parseFloat(checklistData.projeto_residencial?.estac_deducao_lazer?.toString().replace(',', '.')) || 0;
+        const resEstacDedFachadaAtiva = parseFloat(checklistData.projeto_residencial?.estac_deducao_fachada_ativa?.toString().replace(',', '.')) || 0;
+
+        const resEstacTotalNaoComputavel = resEstacDedGaragem + resEstacDedTecnica + resEstacDedCirculacao + resEstacDedLazer + resEstacDedFachadaAtiva;
+        const resEstacAreaComputavel = Math.max(0, resEstacAreaTotal - resEstacTotalNaoComputavel);
+        const resEstacVagasExigidas = resEstacAreaComputavel > 500 ? Math.ceil((resEstacAreaComputavel - 500) / 50) : 0;
+        const resEstacVagasProjeto = parseInt(checklistData.projeto_residencial?.estac_vagas_projeto) || 0;
+        if (resEstacVagasProjeto < resEstacVagasExigidas) {
+          pendencias.push(`- O número de vagas de estacionamento projetadas (${resEstacVagasProjeto}) é inferior ao exigido (${resEstacVagasExigidas}) para a área computável de ${resEstacAreaComputavel.toFixed(2)}m² (Art. 192).`);
+        }
+      }
     }
 
-    // 4. Drenagem pluvial
-    const reqVol = parseFloat(calcAmortecimentoRequerido());
-    const projVol = parseFloat(checklistData.checklist_tecnico.drenagem.amortecimento_projeto?.toString().replace(',', '.'));
-    if (!isNaN(reqVol) && !isNaN(projVol) && projVol < reqVol) {
-      pendencias.push(`- Volume de detenção/amortecimento pluvial (${projVol}m³) é inferior ao mínimo requerido pela Lei 1024/2003 (${reqVol}m³).`);
-    }
-
-    // 5. Acessibilidade Comercial
     if (checklistType === 'comercial') {
+      const pc = checklistData.projeto_comercial || {};
+
+      // BLOCO 1: Zoneamento & Parâmetros Gerais
+      if (!pc.zona_kmz) {
+        pendencias.push('- Falta selecionar a Zona de Zoneamento no Bloco 1.');
+      }
+      
+      const numPavs = parseInt(pc.num_pavimentos) || 0;
+      if (!pc.num_pavimentos || numPavs <= 0) {
+        pendencias.push('- Número de pavimentos inválido ou não informado no Bloco 1.');
+      }
+
+      // Validação unificada de Afastamentos para comercial
+      const nsaplCom = pc.afast_nsapl || false;
+      const zonaKeyCom = pc.zona_kmz || '';
+
+      if (!nsaplCom && zonaKeyCom) {
+        const REGRAS_ZONA_LOCAL = {
+          eixo1:     { frontalAte2: 'alinhamento', frontal3a4: 3.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: true },
+          intensivo: { frontalAte2: 3.0,           frontal3a4: 5.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: false },
+          eixo2:     { frontalAte2: 'alinhamento', frontal3a4: 3.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: true },
+          moderado:  { frontalAte2: 3.0,           frontal3a4: 5.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: false },
+          historica: { frontalAte2: 'alinhamento', frontal3a4: 5.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: true },
+          transicao1:{ frontalAte2: 4.0,           frontal3a4: 5.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: false },
+          transicao2:{ frontalAte2: 10.0,          frontal3a4: 10.0,frontalAFI: null,latFundAte2: 3.0, latFundALFI: null, usaAlinhamento: false },
+        };
+
+        const regra = REGRAS_ZONA_LOCAL[zonaKeyCom];
+        if (regra) {
+          let frontalExig = null;
+          let latFundExig = null;
+          let bloqueio = false;
+          let avisoHotel = false;
+
+          if (zonaKeyCom === 'transicao2') {
+            if (numPavs > 4) bloqueio = true;
+            else if (numPavs >= 3) {
+              avisoHotel = true;
+              frontalExig = 10.0;
+              latFundExig = 10.0;
+            } else {
+              frontalExig = 10.0;
+              latFundExig = 3.0;
+            }
+          } else {
+            if (numPavs <= 2) {
+              frontalExig = regra.frontalAte2;
+              latFundExig = 0;
+            } else if (numPavs <= 4) {
+              frontalExig = regra.frontal3a4;
+              latFundExig = 2.0;
+            } else {
+              frontalExig = regra.frontalAFI + (numPavs - 4) * 0.20;
+              latFundExig = regra.latFundALFI + (numPavs - 4) * 0.20;
+            }
+          }
+
+          if (bloqueio) {
+            pendencias.push(`- [AFASTAMENTOS] GABARITO NÃO PERMITIDO: Edificações acima de 04 pavimentos na Zona de Transição 2 são expressamente PROIBIDAS (Art. 148, III).`);
+          } else {
+            if (avisoHotel) {
+              pendencias.push(`- [AFASTAMENTOS] ATENÇÃO: Edificações de 3 a 4 pavimentos na Zona de Transição 2 são permitidas APENAS para equipamentos especiais de hotelaria e resorts (Art. 148, II). Verifique o uso.`);
+            }
+
+            const usaAlinhamento = regra.usaAlinhamento && numPavs <= 2;
+            const adotaAlinhamento = pc.afast_adota_alinhamento || false;
+
+            if (usaAlinhamento && adotaAlinhamento) {
+              pendencias.push(`- [AFASTAMENTOS] Condicionado: Apresentar Memorial Justificativo Simplificado contendo planta da quadra com locação das edificações vizinhas e Levantamento Fotográfico (Art. 142, Parágrafo Único).`);
+            } else {
+              const pF1 = parseFloat(pc.afast_frontal1?.toString().replace(',', '.')) || 0;
+              const pF2 = parseFloat(pc.afast_frontal2?.toString().replace(',', '.')) || 0;
+              const pLat = parseFloat(pc.afast_lateral?.toString().replace(',', '.')) || 0;
+              const pFund = parseFloat(pc.afast_fundos?.toString().replace(',', '.')) || 0;
+
+              if (typeof frontalExig === 'number') {
+                if (!pc.afast_frontal1 || pF1 < frontalExig) {
+                  pendencias.push(`- Recuo Frontal Projetado (${pF1}m) é inferior ao exigido de ${frontalExig.toFixed(2)}m.`);
+                }
+                if (pc.afast_esquina === 'sim' && (!pc.afast_frontal2 || pF2 < frontalExig)) {
+                  pendencias.push(`- Recuo Frontal Projetado (Testada Secundária: ${pF2}m) é inferior ao exigido de ${frontalExig.toFixed(2)}m.`);
+                }
+              }
+              if (latFundExig > 0) {
+                if (!pc.afast_lateral || pLat < latFundExig) {
+                  pendencias.push(`- Recuo Lateral Projetado (${pLat}m) é inferior ao exigido de ${latFundExig.toFixed(2)}m.`);
+                }
+                if (!pc.afast_fundos || pFund < latFundExig) {
+                  pendencias.push(`- Recuo de Fundos Projetado (${pFund}m) é inferior ao exigido de ${latFundExig.toFixed(2)}m.`);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Parâmetros de ocupação e aproveitamento baseados na zona
+      const zonaInfo = pc.zona_kmz ? ZONAS_ANEXO13[pc.zona_kmz] : null;
+      if (zonaInfo) {
+        const taxaMax = parseFloat(zonaInfo.taxaMax.replace(',', '.')) || 0;
+        const txProj = parseFloat(pc.taxa_ocupacao?.toString().replace(',', '.')) || 0;
+        if (txProj > taxaMax) {
+          pendencias.push(`- Taxa de Ocupação do projeto (${txProj}) excede o limite máximo permitido (${taxaMax}) para a zona ${pc.zona_kmz}.`);
+        }
+
+        const caMaxStr = zonaInfo.caMax || '';
+        const caMax = parseFloat(caMaxStr.replace(',', '.')) || 0;
+        const caProj = parseFloat(pc.coef_aproveitamento?.toString().replace(',', '.')) || 0;
+        if (caMaxStr !== '-' && caMaxStr.toLowerCase() !== 'e' && caMax > 0 && caProj > caMax) {
+          pendencias.push(`- Coeficiente de Aproveitamento do projeto (${caProj}) ultrapassa o máximo permitido (${caMaxStr}) para a zona ${pc.zona_kmz}.`);
+        }
+      }
+
+      if (!pc.projeto_assinado) {
+        pendencias.push('- O projeto arquitetônico comercial não está assinado.');
+      }
+
+      // BLOCO 2: Tabela de Verificação (TSN e CA)
+      const tsnMin = zonaInfo ? parseFloat(zonaInfo.tsn) : 0;
+      const areaTerrenoTSN = parseFloat(pc.tsn_area_terreno?.toString().replace(',', '.')) || 0;
+      const areaProjetoTSN = parseFloat(pc.tsn_area_projeto?.toString().replace(',', '.')) || 0;
+      const tsnCalculada = areaTerrenoTSN > 0 ? (areaProjetoTSN / areaTerrenoTSN) * 100 : 0;
+      if (zonaInfo && tsnCalculada < tsnMin) {
+        pendencias.push(`- Taxa de Solo Natural (TSN) do projeto (${tsnCalculada.toFixed(2)}%) é inferior ao mínimo exigido (${tsnMin}%) no Bloco 2.`);
+      }
+
+      const areaTerrenoCA = parseFloat(pc.ca_area_terreno?.toString().replace(',', '.')) || 0;
+      const areaConstruidaCA = parseFloat(pc.ca_area_construida?.toString().replace(',', '.')) || 0;
+      const caCalculado = areaTerrenoCA > 0 ? (areaConstruidaCA / areaTerrenoCA) : 0;
+      if (zonaInfo && zonaInfo.caMax !== '-' && zonaInfo.caMax.toLowerCase() !== 'e') {
+        const caMax = parseFloat(zonaInfo.caMax.replace(',', '.')) || 0;
+        if (caMax > 0 && caCalculado > caMax) {
+          pendencias.push(`- Coeficiente de Aproveitamento (CA) calculado (${caCalculado.toFixed(2)}) ultrapassa o limite máximo permitido (${zonaInfo.caMax}) no Bloco 2.`);
+        }
+      }
+
+      // BLOCO 3: Áreas Arborizadas do Imóvel
+      const testadaComercial = parseFloat(pc.testada_total?.toString().replace(',', '.')) || 0;
+      if (testadaComercial > 0) {
+        const arvoresExigidasComercial = Math.ceil(testadaComercial / 6);
+        const arvoresProjetoComercial = parseInt(pc.qtd_arvores) || 0;
+        if (arvoresProjetoComercial < arvoresExigidasComercial) {
+          pendencias.push(`- Quantidade de árvores projetadas (${arvoresProjetoComercial}) é inferior ao mínimo exigido de ${arvoresExigidasComercial} árvore(s) para a testada de ${testadaComercial}m.`);
+        }
+      }
+
+      // BLOCO 4: Análise de Drenagem
+      if (pc.drenagem_alagavel === 'sim') {
+        pendencias.push('- O imóvel está em área alagável. Apresentar projeto de drenagem adequado.');
+      }
+      if (pc.drenagem_risco === 'sim') {
+        pendencias.push('- O imóvel está em área de risco. Apresentar laudo técnico de estabilidade/risco.');
+      }
+      if (pc.drenagem_distancia_riacho && pc.drenagem_distancia_riacho !== 'NSAPL') {
+        const distRiacho = parseFloat(pc.drenagem_distancia_riacho.toString().replace(',', '.')) || 0;
+        if (distRiacho < 30) {
+          pendencias.push(`- Distância do projeto a riachos/lagoas (${distRiacho}m) é inferior ao limite de precaução de 30 metros.`);
+        }
+      }
+      if (pc.drenagem_distancia_canal && pc.drenagem_distancia_canal !== 'NSAPL') {
+        const distCanal = parseFloat(pc.drenagem_distancia_canal.toString().replace(',', '.')) || 0;
+        if (distCanal < 10) {
+          pendencias.push(`- Distância do projeto a canais/talvegues (${distCanal}m) é inferior ao limite de precaução de 10 metros.`);
+        }
+      }
+
+      // BLOCO 5: Verificação de ART/RRT
+      if (pc.art_rrt_atividade_corresponde === 'nao_corresponde') {
+        pendencias.push('- A atividade técnica descrita na ART/RRT não corresponde ao projeto apresentado.');
+      }
+      const areaArt = parseFloat(pc.art_rrt_area_art?.toString().replace(',', '.')) || 0;
+      const areaRrt = parseFloat(pc.art_rrt_area_rrt?.toString().replace(',', '.')) || 0;
+      const areaProj = parseFloat(pc.art_rrt_area_projeto?.toString().replace(',', '.')) || 0;
+      const areasPreenchidas = [
+        { nome: 'ART', valor: areaArt, raw: pc.art_rrt_area_art },
+        { nome: 'RRT', valor: areaRrt, raw: pc.art_rrt_area_rrt },
+        { nome: 'Projeto', valor: areaProj, raw: pc.art_rrt_area_projeto }
+      ].filter(item => item.raw && parseFloat(item.raw.toString().replace(',', '.')) > 0);
+      if (areasPreenchidas.length > 1) {
+        const hasAreaDivergencia = !areasPreenchidas.every(item => item.valor === areasPreenchidas[0].valor);
+        if (hasAreaDivergencia) {
+          pendencias.push(`- Divergência nas áreas descritas nos documentos técnicos (ART: ${areaArt}m², RRT: ${areaRrt}m², Projeto: ${areaProj}m²).`);
+        }
+      }
+
+      // BLOCO 6: Estudo de Impacto de Vizinhança (EIV)
+      const areaTerrEIV = parseFloat(pc.eiv_terreno_area) || 0;
+      const areaConstEIV = parseFloat(pc.eiv_construida_area) || 0;
+      if (areaTerrEIV >= 10000 || areaConstEIV >= 5000) {
+        pendencias.push('- O empreendimento necessita apresentar Estudo de Impacto de Vizinhança (EIV) por extrapolar os limites de área.');
+      }
+
+      // BLOCO 7: Depósito de Lixo (Art. 19)
+      const pavsLixo = parseInt(pc.lixo_pavimentos) || 0;
+      const econsLixo = parseInt(pc.lixo_economias) || 0;
+      if (pavsLixo > 2 || econsLixo > 2) {
+        pendencias.push('- O projeto necessita de depósito de lixo conforme o Art. 19 por possuir mais de 2 pavimentos ou mais de 2 economias.');
+      }
+
+      // BLOCO 8: Pé-Direito Comercial e Jirau (Art. 27)
+      if (pc.pe_direito_sala_area && pc.pe_direito_sala_pe) {
+        const areaSala = parseFloat(pc.pe_direito_sala_area) || 0;
+        const peSala = parseFloat(pc.pe_direito_sala_pe) || 0;
+        const peExigido = areaSala > 75 ? 3.50 : 3.00;
+        if (peSala < peExigido) {
+          pendencias.push(`- O pé-direito da sala comercial (${peSala}m) é inferior ao mínimo regulamentar de ${peExigido.toFixed(2)}m.`);
+        }
+      }
+      if (pc.pe_direito_jirau_existe === 'sim') {
+        const areaSala = parseFloat(pc.pe_direito_sala_area) || 0;
+        const areaJirau = parseFloat(pc.pe_direito_jirau_area) || 0;
+        if (areaSala > 0 && areaJirau > areaSala * 0.30) {
+          pendencias.push(`- A área do Jirau (${areaJirau}m²) excede o limite permitido de 30% da área do compartimento (${(areaSala * 0.30).toFixed(2)}m²).`);
+        }
+        const acimaJ = parseFloat(pc.pe_direito_jirau_acima) || 0;
+        const abaixoJ = parseFloat(pc.pe_direito_jirau_abaixo) || 0;
+        if (acimaJ > 0 && acimaJ < 2.20) {
+          pendencias.push(`- O pé-direito acima do Jirau (${acimaJ}m) é inferior ao mínimo de 2.20m.`);
+        }
+        if (abaixoJ > 0 && abaixoJ < 2.20) {
+          pendencias.push(`- O pé-direito abaixo do Jirau (${abaixoJ}m) é inferior ao mínimo de 2.20m.`);
+        }
+      }
+
+      // BLOCO 9: Medidas do Lote vs Escritura
+      if (pc.medidas_lote_projeto && pc.medidas_lote_certidao) {
+        const pNorm = pc.medidas_lote_projeto.trim().toLowerCase().replace(/\s+/g, ' ');
+        const cNorm = pc.medidas_lote_certidao.trim().toLowerCase().replace(/\s+/g, ' ');
+        if (pNorm !== cNorm) {
+          pendencias.push('- As medidas do lote no projeto não coincidem com a Escritura/Certidão de Inteiro Teor.');
+        }
+      }
+
+      // BLOCO 10: Confrontantes
+      if (pc.confrontantes_frente_projeto || pc.confrontantes_fundos_projeto || pc.confrontantes_ld_projeto || pc.confrontantes_le_projeto) {
+        const keysConf = ['frente', 'fundos', 'ld', 'le'];
+        const labelsConf = { frente: 'Frente', fundos: 'Fundos', ld: 'Lado Direito (LD)', le: 'Lado Esquerdo (LE)' };
+        keysConf.forEach(k => {
+          const valProj = pc[`confrontantes_${k}_projeto`]?.trim() || '';
+          const valCert = pc[`confrontantes_${k}_certidao`]?.trim() || '';
+          if (valProj && valCert && valProj.toLowerCase().replace(/\s+/g, ' ') !== valCert.toLowerCase().replace(/\s+/g, ' ')) {
+            pendencias.push(`- Confrontante ${labelsConf[k]} no projeto não coincide com a Escritura ou Certidão de Inteiro Teor.`);
+          }
+        });
+      }
+
+      // BLOCO 11: Área de Uso Comum & Áreas Molhadas
+      if (pc.revestimento_ceramico === false) {
+        pendencias.push('- Falta prever revestimento cerâmico ou equivalente em áreas molhadas no projeto.');
+      }
+      if (pc.tinta_impermeavel === false) {
+        pendencias.push('- Falta prever aplicação de tinta impermeável nas áreas adequadas do projeto.');
+      }
+
+      // BLOCO 12: Afastamentos e Prisma
+      if (pc.prisma_nsapl !== 'NSAPL') {
+        const distVizinho = parseFloat(pc.distancia_lote_vizinho?.toString().replace(',', '.')) || 0;
+        if (pc.distancia_lote_vizinho && distVizinho < 1.50) {
+          pendencias.push(`- Distância de janelas para divisas do lote vizinho (${distVizinho}m) é inferior a 1,50 m.`);
+        }
+      }
+
+      // BLOCO 13: Dimensionamento de Estacionamento
+      const estacAreaTotal = parseFloat(pc.estac_area_total_construida?.toString().replace(',', '.')) || 0;
+      if (estacAreaTotal > 0) {
+        const estacDedGaragem = parseFloat(pc.estac_deducao_garagem?.toString().replace(',', '.')) || 0;
+        const estacDedTecnica = parseFloat(pc.estac_deducao_tecnica?.toString().replace(',', '.')) || 0;
+        const estacDedCirculacao = parseFloat(pc.estac_deducao_circulacao?.toString().replace(',', '.')) || 0;
+        const estacDedLazer = parseFloat(pc.estac_deducao_lazer?.toString().replace(',', '.')) || 0;
+        const estacDedFachadaAtiva = parseFloat(pc.estac_deducao_fachada_ativa?.toString().replace(',', '.')) || 0;
+
+        const estacTotalNaoComputavel = estacDedGaragem + estacDedTecnica + estacDedCirculacao + estacDedLazer + estacDedFachadaAtiva;
+        const estacAreaComputavel = Math.max(0, estacAreaTotal - estacTotalNaoComputavel);
+        const estacVagasExigidas = estacAreaComputavel > 500 ? Math.ceil(estacAreaComputavel / 50) : 0;
+        const estacVagasProjeto = parseInt(pc.estac_vagas_projeto) || 0;
+        if (estacVagasProjeto < estacVagasExigidas) {
+          pendencias.push(`- O número de vagas de estacionamento projetadas (${estacVagasProjeto}) é inferior ao exigido (${estacVagasExigidas}) para a área computável de ${estacAreaComputavel.toFixed(2)}m² (Art. 192).`);
+        }
+      }
+
+      // Acessibilidade Comercial legada
       const ac = checklistData.checklist_tecnico.acessibilidade;
-      if (ac.rampas_ok === false || ac.sanitarios_ok === false || ac.acessibilidade_geral_ok === false) {
+      if (ac && (ac.rampas_ok === false || ac.sanitarios_ok === false || ac.acessibilidade_geral_ok === false)) {
         pendencias.push(`- Inconformidades no projeto de Acessibilidade comercial (NBR 9050): rampas, sanitários PCD ou rotas livres.`);
       }
     }
@@ -1008,9 +1391,40 @@ Retorne APENAS um objeto JSON válido (sem markdown tags adicionais, sem bloco d
 
   useEffect(() => {
     if (proc) {
-      setGeoNotes(proc.report_observation || '');
       setTempLat(proc.latitude || null);
       setTempLng(proc.longitude || null);
+      setRefLat(proc.ref_latitude || null);
+      setRefLng(proc.ref_longitude || null);
+
+      if (proc.report_observation) {
+        try {
+          const parsed = JSON.parse(proc.report_observation);
+          if (parsed && typeof parsed === 'object' && ('notes' in parsed || 'drawings' in parsed)) {
+            setGeoNotes(parsed.notes || '');
+            setGeoShape(parsed.geoShape ? (typeof parsed.geoShape === 'string' ? parsed.geoShape : JSON.stringify(parsed.geoShape)) : null);
+            if (parsed.mainLabel) setMainLabel(parsed.mainLabel);
+            if (parsed.refLabel) setRefLabel(parsed.refLabel);
+            if (parsed.refLat) setRefLat(parsed.refLat);
+            if (parsed.refLng) setRefLng(parsed.refLng);
+            if (parsed.mainCalloutPos) {
+               setMainCalloutLat(parsed.mainCalloutPos.lat);
+               setMainCalloutLng(parsed.mainCalloutPos.lng);
+            }
+            if (parsed.refCalloutPos) {
+               setRefCalloutLat(parsed.refCalloutPos.lat);
+               setRefCalloutLng(parsed.refCalloutPos.lng);
+            }
+            if (parsed.mapZoom) setMapZoom(parsed.mapZoom);
+            if (parsed.mapCenter) setMapCenter(parsed.mapCenter);
+          } else {
+            setGeoNotes(proc.report_observation);
+          }
+        } catch (e) {
+          setGeoNotes(proc.report_observation);
+        }
+      } else {
+        setGeoNotes('');
+      }
     }
   }, [proc]);
 
@@ -1022,20 +1436,37 @@ Retorne APENAS um objeto JSON válido (sem markdown tags adicionais, sem bloco d
 
     const loadLeaflet = () => {
       return new Promise((resolve) => {
-        if (window.L) return resolve();
+        if (window.L && window.L.Control.Draw) return resolve();
         
-        if (!document.getElementById('leaflet-css')) {
-          const link = document.createElement('link');
-          link.id = 'leaflet-css';
-          link.rel = 'stylesheet';
-          link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-          document.head.appendChild(link);
-        }
+        const loadCSS = (id, href) => {
+          if (!document.getElementById(id)) {
+            const link = document.createElement('link');
+            link.id = id;
+            link.rel = 'stylesheet';
+            link.href = href;
+            document.head.appendChild(link);
+          }
+        };
 
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        script.onload = () => resolve();
-        document.body.appendChild(script);
+        loadCSS('leaflet-css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+        loadCSS('leaflet-draw-css', 'https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css');
+
+        const loadScript = (src) => {
+          return new Promise((res) => {
+            const script = document.createElement('script');
+            script.src = src;
+            script.onload = () => res();
+            document.body.appendChild(script);
+          });
+        };
+
+        if (!window.L) {
+          loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js').then(() => {
+            loadScript('https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js').then(resolve);
+          });
+        } else {
+          loadScript('https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js').then(resolve);
+        }
       });
     };
 
@@ -1047,34 +1478,249 @@ Retorne APENAS um objeto JSON válido (sem markdown tags adicionais, sem bloco d
   useEffect(() => {
     if (!mapReady || !isGeoOpen || !window.L) return;
 
-    const initialLat = tempLat || -3.78992;
-    const initialLng = tempLng || -38.58892;
+    const initialLat = mapCenter ? mapCenter.lat : (tempLat || -3.78992);
+    const initialLng = mapCenter ? mapCenter.lng : (tempLng || -38.58892);
+    const zoomLvl = mapZoom || 14;
 
-    const map = window.L.map('leaflet-picker-map').setView([initialLat, initialLng], 14);
+    const map = window.L.map('leaflet-picker-map').setView([initialLat, initialLng], zoomLvl);
 
     window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       attribution: 'Esri World Imagery'
     }).addTo(map);
 
-    let marker = null;
+    // --- LEAFLET DRAW SETUP ---
+    const drawnItems = new window.L.FeatureGroup();
+    map.addLayer(drawnItems);
+
+    if (geoShape) {
+      try {
+        const geoJsonData = JSON.parse(geoShape);
+        window.L.geoJSON(geoJsonData, {
+          onEachFeature: function (feature, layer) {
+            drawnItems.addLayer(layer);
+          }
+        });
+      } catch (e) {
+        console.error("Erro ao carregar geoShape:", e);
+      }
+    }
+
+    if (window.L.Control && window.L.Control.Draw) {
+      const drawControl = new window.L.Control.Draw({
+        edit: { featureGroup: drawnItems },
+        draw: {
+          marker: false,
+          circlemarker: false,
+          circle: false
+        }
+      });
+      map.addControl(drawControl);
+
+      const updateGeoShape = () => {
+        const features = [];
+        drawnItems.eachLayer(layer => {
+          if (!layer.customType && typeof layer.toGeoJSON === 'function') {
+            features.push(layer.toGeoJSON());
+          }
+        });
+        const data = { type: "FeatureCollection", features: features };
+        setGeoShape(JSON.stringify(data));
+      };
+
+      map.on(window.L.Draw.Event.CREATED, function (e) {
+        drawnItems.addLayer(e.layer);
+        updateGeoShape();
+      });
+      map.on(window.L.Draw.Event.EDITED, updateGeoShape);
+      
+      map.on(window.L.Draw.Event.DELETED, function (e) {
+        let deletedMain = false;
+        let deletedRef = false;
+        
+        e.layers.eachLayer(function (layer) {
+          if (layer.customType === 'main') deletedMain = true;
+          if (layer.customType === 'ref') deletedRef = true;
+        });
+
+        if (deletedMain) {
+          mainMarker = null;
+          calloutMarker = null;
+          calloutLine = null;
+          if (mainGroup) { drawnItems.removeLayer(mainGroup); mainGroup = null; }
+          window.pickerMainCallout = null;
+          setTempLat(null);
+          setTempLng(null);
+        }
+        if (deletedRef) {
+          refMarker = null;
+          refCalloutMarker = null;
+          refCalloutLine = null;
+          if (refGroup) { drawnItems.removeLayer(refGroup); refGroup = null; }
+          window.pickerRefCallout = null;
+          setRefLat(null);
+          setRefLng(null);
+        }
+        updateGeoShape();
+      });
+    }
+
+    // --- DRAGGABLE CALLOUT SETUP ---
+    let mainGroup = null;
+    let mainMarker = null;
+    let calloutMarker = null;
+    let calloutLine = null;
+
+    let refGroup = null;
+    let refMarker = null;
+    let refCalloutMarker = null;
+    let refCalloutLine = null;
+
+    const createMainCallout = (latlng) => {
+      if (!mainGroup) {
+        mainGroup = new window.L.FeatureGroup();
+        mainGroup.customType = 'main';
+        drawnItems.addLayer(mainGroup);
+      }
+
+      if (!mainMarker) {
+        mainMarker = window.L.marker(latlng, { draggable: true });
+        mainMarker.customType = 'main';
+        mainGroup.addLayer(mainMarker);
+        
+        mainMarker.on('drag', (e) => {
+          const pos = e.target.getLatLng();
+          setTempLat(parseFloat(pos.lat.toFixed(6)));
+          setTempLng(parseFloat(pos.lng.toFixed(6)));
+          if (calloutLine && calloutMarker) {
+            calloutLine.setLatLngs([pos, calloutMarker.getLatLng()]);
+          }
+        });
+      } else {
+        mainMarker.setLatLng(latlng);
+      }
+
+      if (!calloutMarker) {
+        const offsetLat = mainCalloutLat || latlng.lat + 0.002;
+        const offsetLng = mainCalloutLng || latlng.lng + 0.002;
+        const icon = window.L.divIcon({
+          className: 'custom-callout main-callout',
+          html: `<div style="background: white; padding: 6px 12px; border: 2px solid #0056b3; border-radius: 6px; box-shadow: 0 4px 8px rgba(0,0,0,0.4); white-space: nowrap; font-size: 13px; cursor: grab; font-weight: bold; color: #0056b3;">${mainLabelRef.current}<br/><small style="font-weight: normal; color: #555;">(Arraste este balão)</small></div>`,
+          iconSize: null
+        });
+        calloutMarker = window.L.marker([offsetLat, offsetLng], { icon, draggable: true });
+        calloutMarker.customType = 'main';
+        mainGroup.addLayer(calloutMarker);
+        
+        calloutMarker.on('drag', (e) => {
+          const pos = e.target.getLatLng();
+          setMainCalloutLat(parseFloat(pos.lat.toFixed(6)));
+          setMainCalloutLng(parseFloat(pos.lng.toFixed(6)));
+          if (calloutLine && mainMarker) {
+            calloutLine.setLatLngs([mainMarker.getLatLng(), calloutMarker.getLatLng()]);
+          }
+        });
+        window.pickerMainCallout = calloutMarker;
+      }
+
+      if (!calloutLine) {
+        calloutLine = window.L.polyline([mainMarker.getLatLng(), calloutMarker.getLatLng()], {
+          color: '#0056b3', weight: 2, dashArray: '4, 4'
+        });
+        calloutLine.customType = 'main';
+        mainGroup.addLayer(calloutLine);
+      } else {
+        calloutLine.setLatLngs([mainMarker.getLatLng(), calloutMarker.getLatLng()]);
+      }
+    };
+
+    const createRefCallout = (latlng) => {
+      if (!refGroup) {
+        refGroup = new window.L.FeatureGroup();
+        refGroup.customType = 'ref';
+        drawnItems.addLayer(refGroup);
+      }
+
+      if (!refMarker) {
+        const refIcon = window.L.icon({
+          iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
+          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+          iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+        });
+        refMarker = window.L.marker(latlng, { icon: refIcon, draggable: true });
+        refMarker.customType = 'ref';
+        refGroup.addLayer(refMarker);
+        
+        refMarker.on('drag', (e) => {
+          const pos = e.target.getLatLng();
+          setRefLat(parseFloat(pos.lat.toFixed(6)));
+          setRefLng(parseFloat(pos.lng.toFixed(6)));
+          if (refCalloutLine && refCalloutMarker) {
+            refCalloutLine.setLatLngs([pos, refCalloutMarker.getLatLng()]);
+          }
+        });
+      } else {
+        refMarker.setLatLng(latlng);
+      }
+
+      if (!refCalloutMarker) {
+        const offsetLat = refCalloutLat || latlng.lat + 0.002;
+        const offsetLng = refCalloutLng || latlng.lng + 0.002;
+        const icon = window.L.divIcon({
+          className: 'custom-callout ref-callout',
+          html: `<div style="background: white; padding: 6px 12px; border: 2px solid #d97706; border-radius: 6px; box-shadow: 0 4px 8px rgba(0,0,0,0.4); white-space: nowrap; font-size: 13px; cursor: grab; font-weight: bold; color: #d97706;">${refLabelRef.current}<br/><small style="font-weight: normal; color: #555;">(Arraste este balão)</small></div>`,
+          iconSize: null
+        });
+        refCalloutMarker = window.L.marker([offsetLat, offsetLng], { icon, draggable: true });
+        refCalloutMarker.customType = 'ref';
+        refGroup.addLayer(refCalloutMarker);
+        
+        refCalloutMarker.on('drag', (e) => {
+          const pos = e.target.getLatLng();
+          setRefCalloutLat(parseFloat(pos.lat.toFixed(6)));
+          setRefCalloutLng(parseFloat(pos.lng.toFixed(6)));
+          if (refCalloutLine && refMarker) {
+            refCalloutLine.setLatLngs([refMarker.getLatLng(), refCalloutMarker.getLatLng()]);
+          }
+        });
+        window.pickerRefCallout = refCalloutMarker;
+      }
+
+      if (!refCalloutLine) {
+        refCalloutLine = window.L.polyline([refMarker.getLatLng(), refCalloutMarker.getLatLng()], {
+          color: '#d97706', weight: 2, dashArray: '4, 4'
+        });
+        refCalloutLine.customType = 'ref';
+        refGroup.addLayer(refCalloutLine);
+      } else {
+        refCalloutLine.setLatLngs([refMarker.getLatLng(), refCalloutMarker.getLatLng()]);
+      }
+    };
+
     if (tempLat && tempLng) {
-      marker = window.L.marker([tempLat, tempLng]).addTo(map);
+      createMainCallout({ lat: tempLat, lng: tempLng });
+    }
+    
+    if (refLat && refLng) {
+      createRefCallout({ lat: refLat, lng: refLng });
     }
 
     map.on('click', (e) => {
-      const { lat, lng } = e.latlng;
-      setTempLat(parseFloat(lat.toFixed(6)));
-      setTempLng(parseFloat(lng.toFixed(6)));
-      
-      if (marker) {
-        marker.setLatLng(e.latlng);
-      } else {
-        marker = window.L.marker(e.latlng).addTo(map);
+      const mode = placementModeRef.current;
+      if (mode === 'main') {
+        setTempLat(parseFloat(e.latlng.lat.toFixed(6)));
+        setTempLng(parseFloat(e.latlng.lng.toFixed(6)));
+        createMainCallout(e.latlng);
+        setPlacementMode(null);
+      } else if (mode === 'ref') {
+        setRefLat(parseFloat(e.latlng.lat.toFixed(6)));
+        setRefLng(parseFloat(e.latlng.lng.toFixed(6)));
+        createRefCallout(e.latlng);
+        setPlacementMode(null);
       }
     });
 
     window.pickerMap = map;
-    window.pickerMarker = marker;
+    window.pickerMarker = mainMarker;
 
     return () => {
       if (window.pickerMap) {
@@ -1084,6 +1730,28 @@ Retorne APENAS um objeto JSON válido (sem markdown tags adicionais, sem bloco d
       }
     };
   }, [mapReady, isGeoOpen]);
+
+  useEffect(() => {
+    if (window.pickerMainCallout) {
+      const icon = window.L.divIcon({
+        className: 'custom-callout main-callout',
+        html: `<div style="background: white; padding: 6px 12px; border: 2px solid #0056b3; border-radius: 6px; box-shadow: 0 4px 8px rgba(0,0,0,0.4); white-space: nowrap; font-size: 13px; cursor: grab; font-weight: bold; color: #0056b3;">${mainLabel}<br/><small style="font-weight: normal; color: #555;">(Arraste este balão)</small></div>`,
+        iconSize: null
+      });
+      window.pickerMainCallout.setIcon(icon);
+    }
+  }, [mainLabel]);
+
+  useEffect(() => {
+    if (window.pickerRefCallout) {
+      const icon = window.L.divIcon({
+        className: 'custom-callout ref-callout',
+        html: `<div style="background: white; padding: 6px 12px; border: 2px solid #d97706; border-radius: 6px; box-shadow: 0 4px 8px rgba(0,0,0,0.4); white-space: nowrap; font-size: 13px; cursor: grab; font-weight: bold; color: #d97706;">${refLabel}<br/><small style="font-weight: normal; color: #555;">(Arraste este balão)</small></div>`,
+        iconSize: null
+      });
+      window.pickerRefCallout.setIcon(icon);
+    }
+  }, [refLabel]);
 
   const handleMapSearch = async () => {
     if (!mapSearch.trim()) return;
@@ -1261,11 +1929,62 @@ Retorne APENAS um objeto JSON válido (sem markdown tags adicionais, sem bloco d
     setGeoLoading(true);
     setGeoAlert('');
     try {
+      let advancedDrawings = [];
+      const mLat = tempLat || (window.pickerMap ? window.pickerMap.getCenter().lat : -3.78);
+      const mLng = tempLng || (window.pickerMap ? window.pickerMap.getCenter().lng : -38.58);
+      
+      if (mainLabel || tempLat) {
+        advancedDrawings.push({
+          type: 'marker',
+          lat: mLat,
+          lng: mLng,
+          text: `📍 ${mainLabel || 'Local'}`
+        });
+      }
+      if (refLabel && refLat && refLng) {
+        advancedDrawings.push({
+          type: 'marker',
+          lat: refLat,
+          lng: refLng,
+          text: `📍 ${refLabel}`
+        });
+      }
+
+      if (geoShape) {
+        try {
+          const parsedGeo = typeof geoShape === 'string' ? JSON.parse(geoShape) : geoShape;
+          if (parsedGeo.features) {
+            parsedGeo.features.forEach(f => {
+              if (f.geometry && f.geometry.type === 'LineString') {
+                advancedDrawings.push({ type: 'line', points: f.geometry.coordinates.map(c => [c[1], c[0]]) });
+              } else if (f.geometry && f.geometry.type === 'Polygon') {
+                advancedDrawings.push({ type: 'polygon', points: f.geometry.coordinates[0].map(c => [c[1], c[0]]) });
+              }
+            });
+          }
+        } catch(e) {}
+      }
+
+      const payloadObj = {
+        notes: geoNotes.trim(),
+        drawings: advancedDrawings,
+        geoShape: geoShape ? (typeof geoShape === 'string' ? JSON.parse(geoShape) : geoShape) : null,
+        mainLabel,
+        refLabel,
+        refLat,
+        refLng,
+        mainCalloutPos: mainCalloutLat ? { lat: mainCalloutLat, lng: mainCalloutLng } : null,
+        refCalloutPos: refCalloutLat ? { lat: refCalloutLat, lng: refCalloutLng } : null,
+        mapZoom: window.pickerMap ? window.pickerMap.getZoom() : 14,
+        mapCenter: window.pickerMap ? window.pickerMap.getCenter() : null
+      };
+
       await api.updateProcess(proc.id, {
         latitude: tempLat || null,
         longitude: tempLng || null,
-        report_observation: geoNotes.trim() || null
+        report_observation: JSON.stringify(payloadObj)
       });
+
       setIsGeoOpen(false);
       loadData();
     } catch(err) {
@@ -1415,14 +2134,26 @@ Retorne APENAS um objeto JSON válido (sem markdown tags adicionais, sem bloco d
                     <strong>Longitude:</strong> <span className="mono">{proc.longitude}</span>
                   </div>
                 </div>
-                {proc.report_observation && (
-                  <div style={{fontSize: '13px'}}>
-                    <strong style={{color: 'var(--text2)', display: 'block', marginBottom: '4px'}}>Observações Técnicas do Relatório:</strong>
-                    <div style={{background: 'var(--body-bg)', padding: '12px', borderRadius: 'var(--r)', border: '1px solid var(--border)', fontStyle: 'italic', color: 'var(--text2)', maxHeight: '120px', overflowY: 'auto'}}>
-                      {proc.report_observation}
+                {(() => {
+                  let obsText = proc.report_observation;
+                  if (obsText) {
+                    try {
+                      const parsed = JSON.parse(obsText);
+                      if (parsed && typeof parsed === 'object' && ('notes' in parsed || 'drawings' in parsed)) {
+                        obsText = parsed.notes;
+                      }
+                    } catch(e) {}
+                  }
+                  if (!obsText) return null;
+                  return (
+                    <div style={{fontSize: '13px'}}>
+                      <strong style={{color: 'var(--text2)', display: 'block', marginBottom: '4px'}}>Observações Técnicas do Relatório:</strong>
+                      <div style={{background: 'var(--body-bg)', padding: '12px', borderRadius: 'var(--r)', border: '1px solid var(--border)', fontStyle: 'italic', color: 'var(--text2)', maxHeight: '120px', overflowY: 'auto', whiteSpace: 'pre-wrap'}}>
+                        {obsText}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             ) : (
               <div className="empty" style={{padding: '16px 0', fontSize: '13px'}}>
@@ -2357,18 +3088,33 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
 
           {/* Seção 5: Checklist Técnico Adaptativo (Zoneamento e Parâmetros) */}
           {/* Seção 4: Análise do Projeto Arquitetônico (Apenas no Residencial) */}
-          {checklistType === 'residencial' && (
-            <div style={{ marginBottom: '28px' }}>
-              <h3 style={{ fontSize: '15px', fontWeight: '600', marginBottom: '12px', color: 'var(--text1)' }}>
-                📐 4. Análise do Projeto Arquitetônico
-              </h3>
+          {checklistType === 'residencial' && (() => {
+            const resEstacAreaTotal = parseFloat(checklistData.projeto_residencial?.estac_area_total_construida?.toString().replace(',', '.')) || 0;
+            const resEstacDedGaragem = parseFloat(checklistData.projeto_residencial?.estac_deducao_garagem?.toString().replace(',', '.')) || 0;
+            const resEstacDedTecnica = parseFloat(checklistData.projeto_residencial?.estac_deducao_tecnica?.toString().replace(',', '.')) || 0;
+            const resEstacDedCirculacao = parseFloat(checklistData.projeto_residencial?.estac_deducao_circulacao?.toString().replace(',', '.')) || 0;
+            const resEstacDedLazer = parseFloat(checklistData.projeto_residencial?.estac_deducao_lazer?.toString().replace(',', '.')) || 0;
+            const resEstacDedFachadaAtiva = parseFloat(checklistData.projeto_residencial?.estac_deducao_fachada_ativa?.toString().replace(',', '.')) || 0;
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+            const resEstacTotalNaoComputavel = resEstacDedGaragem + resEstacDedTecnica + resEstacDedCirculacao + resEstacDedLazer + resEstacDedFachadaAtiva;
+            const resEstacAreaComputavel = Math.max(0, resEstacAreaTotal - resEstacTotalNaoComputavel);
+            const resEstacVagasExigidas = resEstacAreaComputavel > 500 ? Math.ceil((resEstacAreaComputavel - 500) / 50) : 0;
+            const resEstacVagasProjeto = parseInt(checklistData.projeto_residencial?.estac_vagas_projeto) || 0;
+            const resEstacIsento = resEstacVagasExigidas === 0;
+            const resEstacConforme = resEstacVagasProjeto >= resEstacVagasExigidas;
+
+            return (
+              <div style={{ marginBottom: '28px' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: '600', marginBottom: '12px', color: 'var(--text1)' }}>
+                  📐 4. Análise do Projeto Arquitetônico
+                </h3>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
                 
                 {/* BLOCO A: Zoneamento */}
                 <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                   <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                    🗺️ Zoneamento e Parâmetros Gerais
+                    🗺️ 1. Zoneamento e Parâmetros Gerais
                   </strong>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
@@ -2406,6 +3152,19 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                           <option key={key} value={key}>{ZONAS_ANEXO13[key].nome}</option>
                         ))}
                       </select>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '8px', alignItems: 'center' }}>
+                      <span>Nº Pavimentos:</span>
+                      <input 
+                        type="number" 
+                        value={checklistData.projeto_residencial?.num_pavimentos || ''}
+                        onChange={e => setChecklistData({
+                          ...checklistData,
+                          projeto_residencial: { ...checklistData.projeto_residencial, num_pavimentos: e.target.value }
+                        })}
+                        style={{ padding: '3px 6px', fontSize: '11px' }}
+                      />
                     </div>
 
                     {checklistData.projeto_residencial?.zona_kmz && (
@@ -2484,7 +3243,7 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                 {/* BLOCO B: Tabela de Verificação */}
                 <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                   <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                    📊 Tabela de Verificação
+                    📊 2. Tabela de Verificação
                   </strong>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '12px' }}>
@@ -2606,7 +3365,7 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                 {/* BLOCO C: Medidas e Confrontantes */}
                 <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                   <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                    📏 Medidas e Confrontantes
+                    📏 3. Medidas e Confrontantes
                   </strong>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
@@ -2692,7 +3451,7 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                 {/* BLOCO D: Uso Comum & Áreas Molhadas */}
                 <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                   <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                    🏢 Uso Comum & Áreas Molhadas
+                    🏢 4. Uso Comum & Áreas Molhadas
                   </strong>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
@@ -2785,7 +3544,7 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                 {/* BLOCO E: Acessibilidade */}
                 <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                   <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                    ♿ Acessibilidade
+                    ♿ 5. Acessibilidade
                   </strong>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
@@ -2822,7 +3581,7 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                 {/* BLOCO F: Ventilação & Afastamentos */}
                 <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                   <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                    💨 Afastamentos e Prisma de Ventilação
+                    💨 6. Afastamentos e Prisma de Ventilação
                   </strong>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
@@ -2883,7 +3642,7 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                 {/* BLOCO G: Áreas Arborizadas */}
                 <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                   <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                    🌳 Áreas Arborizadas do Imóvel
+                    🌳 7. Áreas Arborizadas do Imóvel
                   </strong>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
@@ -2920,7 +3679,7 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                 {/* BLOCO H: Análise de Drenagem */}
                 <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                   <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                    🌊 Análise de Drenagem
+                    🌊 8. Análise de Drenagem
                   </strong>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
@@ -3019,7 +3778,7 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                 {/* BLOCO I: Verificação da ART/RRT */}
                 <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                   <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                    📋 Verificação da ART/RRT
+                    📋 9. Verificação da ART/RRT
                   </strong>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
@@ -3095,18 +3854,12 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                           { nome: 'Projeto', valor: areaProj, raw: checklistData.projeto_residencial?.art_rrt_area_projeto }
                         ].filter(item => item.raw && parseFloat(item.raw.toString().replace(',', '.')) > 0);
 
-                        const hasAreaDivergencia = areasPreenchidas.length > 1 && !areasPreenchidas.every(item => item.valor === areasPreenchidas[0].valor);
+                        const hasAreaDivergencia = areasPreenchidas.length > 1 && !areasPreenchidas.every(item => item.valor === areasPreenedidas[0].valor);
 
                         if (hasAreaDivergencia) {
                           return (
                             <div style={{ padding: '8px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '4px', color: 'var(--red)', fontSize: '10px', fontWeight: '500', marginTop: '6px' }}>
                               ⚠️ <strong>DIVERGÊNCIA DE ÁREA DETECTADA:</strong> As áreas informadas divergem entre si! Verifique os documentos.
-                            </div>
-                          );
-                        } else if (areasPreenchidas.length > 1) {
-                          return (
-                            <div style={{ padding: '6px 8px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.2)', borderRadius: '4px', color: 'var(--green)', fontSize: '10px', fontWeight: '500', marginTop: '6px', textAlign: 'center' }}>
-                              ✔️ Áreas em conformidade entre os documentos informados.
                             </div>
                           );
                         }
@@ -3116,9 +3869,144 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                   </div>
                 </div>
 
+                {/* BLOCO J: Dimensionamento de Estacionamento */}
+                <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                  <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                    🚗 10. Dimensionamento de Estacionamento (Lei 034/2022)
+                  </strong>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                      <span>Área Total Construída (m²):</span>
+                      <input 
+                        type="number"
+                        value={checklistData.projeto_residencial?.estac_area_total_construida || ''}
+                        onChange={e => setChecklistData({ ...checklistData, projeto_residencial: { ...checklistData.projeto_residencial, estac_area_total_construida: e.target.value } })}
+                        style={{ padding: '3px 6px', fontSize: '11px' }}
+                      />
+                    </div>
+
+                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px' }}>
+                      <span style={{ display: 'block', fontWeight: '600', marginBottom: '6px', color: 'var(--blue)' }}>Deduções / Áreas Não Computáveis (Art. 137):</span>
+                      
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                          <span 
+                            title="Compreende toda a área destinada à guarda de veículos (vagas), bem como as faixas de circulação, pistas de manobra e rampas de acesso veicular."
+                            style={{ borderBottom: '1px dotted var(--text2)', cursor: 'help' }}
+                          >
+                            Estacionamento/Garagem (m²):
+                          </span>
+                          <input 
+                            type="number"
+                            value={checklistData.projeto_residencial?.estac_deducao_garagem || ''}
+                            onChange={e => setChecklistData({ ...checklistData, projeto_residencial: { ...checklistData.projeto_residencial, estac_deducao_garagem: e.target.value } })}
+                            style={{ padding: '3px 6px', fontSize: '11px' }}
+                          />
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                          <span 
+                            title="Engloba compartimentos acessórios sem permanência humana prolongada (depósitos de material/lixo), além de áreas técnicas como casas de máquinas, barriletes, centrais de ar-condicionado e reservatórios (inferiores e superiores)."
+                            style={{ borderBottom: '1px dotted var(--text2)', cursor: 'help' }}
+                          >
+                            Áreas Técnicas e Depósitos (m²):
+                          </span>
+                          <input 
+                            type="number"
+                            value={checklistData.projeto_residencial?.estac_deducao_tecnica || ''}
+                            onChange={e => setChecklistData({ ...checklistData, projeto_residencial: { ...checklistData.projeto_residencial, estac_deducao_tecnica: e.target.value } })}
+                            style={{ padding: '3px 6px', fontSize: '11px' }}
+                          />
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                          <span 
+                            title="Corresponde ao somatório das áreas ocupadas por caixas de escadas, rampas de acessibilidade/pedestres e poços de elevadores, contabilizadas em todos os pavimentos por onde perpassam."
+                            style={{ borderBottom: '1px dotted var(--text2)', cursor: 'help' }}
+                          >
+                            Circulação Vertical (m²):
+                          </span>
+                          <input 
+                            type="number"
+                            value={checklistData.projeto_residencial?.estac_deducao_circulacao || ''}
+                            onChange={e => setChecklistData({ ...checklistData, projeto_residencial: { ...checklistData.projeto_residencial, estac_deducao_circulacao: e.target.value } })}
+                            style={{ padding: '3px 6px', fontSize: '11px' }}
+                          />
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                          <span 
+                            title="Salões de festas, jogos, academias ou áreas de convivência que sejam de uso comum do condomínio/edifício (aplicável se houver área comum de funcionários/público classificada como lazer)."
+                            style={{ borderBottom: '1px dotted var(--text2)', cursor: 'help' }}
+                          >
+                            Lazer e Convivência (m²):
+                          </span>
+                          <input 
+                            type="number"
+                            value={checklistData.projeto_residencial?.estac_deducao_lazer || ''}
+                            onChange={e => setChecklistData({ ...checklistData, projeto_residencial: { ...checklistData.projeto_residencial, estac_deducao_lazer: e.target.value } })}
+                            style={{ padding: '3px 6px', fontSize: '11px' }}
+                          />
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                          <span style={{ fontWeight: '500' }}>Fachada Ativa no Térreo (m²):</span>
+                          <input 
+                            type="number"
+                            value={checklistData.projeto_residencial?.estac_deducao_fachada_ativa || ''}
+                            onChange={e => setChecklistData({ ...checklistData, projeto_residencial: { ...checklistData.projeto_residencial, estac_deducao_fachada_ativa: e.target.value } })}
+                            style={{ padding: '3px 6px', fontSize: '11px' }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', background: 'rgba(0,0,0,0.01)', padding: '6px', borderRadius: '4px' }}>
+                        <span>Total Não Computável: <strong>{resEstacTotalNaoComputavel.toFixed(2)} m²</strong></span>
+                        <span>Área Computável Final: <strong>{resEstacAreaComputavel.toFixed(2)} m²</strong></span>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Vagas Exigidas por Lei:</span>
+                        <input 
+                          type="text"
+                          disabled
+                          value={resEstacIsento ? 'ISENTO (≤ 500 m²)' : `${resEstacVagasExigidas} ${resEstacVagasExigidas === 1 ? 'vaga' : 'vagas'}`}
+                          style={{ padding: '3px 6px', fontSize: '11px', background: 'rgba(0,0,0,0.05)', border: '1px solid var(--border)', fontWeight: 'bold', color: 'var(--blue)' }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Vagas no Projeto:</span>
+                        <input 
+                          type="number"
+                          placeholder="Número de vagas"
+                          value={checklistData.projeto_residencial?.estac_vagas_projeto || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_residencial: { ...checklistData.projeto_residencial, estac_vagas_projeto: e.target.value } })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+
+                      {checklistData.projeto_residencial?.estac_area_total_construida !== '' && (
+                        <div style={{ padding: '6px 8px', background: resEstacConforme ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)', border: `1px solid ${resEstacConforme ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`, borderRadius: '4px', fontSize: '11px', fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>
+                            {resEstacIsento ? 'Isento de Vagas' : `Projeto: ${resEstacVagasProjeto} de ${resEstacVagasExigidas}`}
+                          </span>
+                          <span style={{ fontWeight: 'bold', color: resEstacConforme ? 'var(--green)' : 'var(--red)' }}>
+                            {resEstacIsento ? '✔️ ISENTO DE VAGAS' : resEstacConforme ? '✔️ CONFORME' : '❌ INSUFICIENTE'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </div>
-          )}
+          );})()} 
+
 
           {/* Seção 4: Análise do Projeto Arquitetônico (Apenas no Comercial) */}
           {checklistType === 'comercial' && (() => {
@@ -3141,8 +4029,6 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                 comercialAlfExigido = 2;
                 comercialAfastamentoDesc = 'Edificações acima de 02 até 04 pavimentos: Afastamento frontal de 3m e laterais/fundos de 2m acima do 2º pavimento.';
               } else {
-                // n > 4: progressivo conforme Art. 149
-                // Fórmulas: AFR = AFI + (n - 4) * 0.20, ALFR = ALFI + (n - 4) * 0.20 (AFI=5m, ALFI=2m)
                 comercialAfExigido = 5 + (comercialNumPavimentos - 4) * 0.20;
                 comercialAlfExigido = 2 + (comercialNumPavimentos - 4) * 0.20;
                 comercialAfastamentoDesc = `Edificações acima de 04 pavimentos: Progressivo (Art. 149). AFR = 5m + (${comercialNumPavimentos}-4) x 0,20m = ${comercialAfExigido.toFixed(2)}m. ALFR = 2m + (${comercialNumPavimentos}-4) x 0,20m = ${comercialAlfExigido.toFixed(2)}m.`;
@@ -3177,43 +4063,60 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
             const arvoresExigidasComercial = Math.ceil(testadaComercial / 6);
             const arvoresProjetoComercial = parseInt(checklistData.projeto_comercial?.qtd_arvores) || 0;
 
+            // Lógica do Bloco 12 (Afastamentos e Prisma)
+            const isPrismaNS = checklistData.projeto_comercial?.prisma_nsapl === 'NSAPL';
+
+            // Lógica do Bloco 13 (Estacionamento)
+            const estacAreaTotal = parseFloat(checklistData.projeto_comercial?.estac_area_total_construida?.toString().replace(',', '.')) || 0;
+            const estacDedGaragem = parseFloat(checklistData.projeto_comercial?.estac_deducao_garagem?.toString().replace(',', '.')) || 0;
+            const estacDedTecnica = parseFloat(checklistData.projeto_comercial?.estac_deducao_tecnica?.toString().replace(',', '.')) || 0;
+            const estacDedCirculacao = parseFloat(checklistData.projeto_comercial?.estac_deducao_circulacao?.toString().replace(',', '.')) || 0;
+            const estacDedLazer = parseFloat(checklistData.projeto_comercial?.estac_deducao_lazer?.toString().replace(',', '.')) || 0;
+            const estacDedFachadaAtiva = parseFloat(checklistData.projeto_comercial?.estac_deducao_fachada_ativa?.toString().replace(',', '.')) || 0;
+
+            const estacTotalNaoComputavel = estacDedGaragem + estacDedTecnica + estacDedCirculacao + estacDedLazer + estacDedFachadaAtiva;
+            const estacAreaComputavel = Math.max(0, estacAreaTotal - estacTotalNaoComputavel);
+            const estacVagasExigidas = estacAreaComputavel > 500 ? Math.ceil(estacAreaComputavel / 50) : 0;
+            const estacVagasProjeto = parseInt(checklistData.projeto_comercial?.estac_vagas_projeto) || 0;
+            const estacIsento = estacVagasExigidas === 0;
+            const estacConforme = estacVagasProjeto >= estacVagasExigidas;
+
             return (
               <div style={{ marginBottom: '28px' }}>
                 <h3 style={{ fontSize: '15px', fontWeight: '600', marginBottom: '12px', color: 'var(--text1)' }}>
-                  📐 4. Análise do Projeto Arquitetônico (Comercial)
+                  📐 3. Análise do Projeto Arquitetônico (Comercial)
                 </h3>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
                   
-                  {/* BLOCO A: Zoneamento e Parâmetros Gerais */}
+                  {/* BLOCO 1: Zoneamento e Parâmetros Gerais */}
                   <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                     <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                      🌐 Zoneamento e Parâmetros Gerais
+                      🏢 1. Zoneamento & Parâmetros Gerais
                     </strong>
-
+                    
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
                       <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>Zona (KMZ):</span>
-                        <select
-                          value={comercialZona}
+                        <span>Zona do KMZ:</span>
+                        <select 
+                          value={comercialZona} 
                           onChange={e => setChecklistData({
                             ...checklistData,
                             projeto_comercial: { ...checklistData.projeto_comercial, zona_kmz: e.target.value }
                           })}
-                          style={{ padding: '4px', fontSize: '11px', width: '100%' }}
+                          style={{ padding: '3px 6px', fontSize: '11px', width: '100%' }}
                         >
-                          <option value="">Selecione a Zona...</option>
-                          {Object.keys(ZONAS_ANEXO13).map(key => (
-                            <option key={key} value={key}>{ZONAS_ANEXO13[key].nome}</option>
+                          <option value="">Selecione...</option>
+                          {Object.keys(ZONAS_ANEXO13).map(z => (
+                            <option key={z} value={z}>{ZONAS_ANEXO13[z].nome}</option>
                           ))}
                         </select>
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>Nº de Pavimentos (n):</span>
-                        <input
-                          type="number"
-                          placeholder="Número de pavimentos"
+                        <span>Nº Pavimentos:</span>
+                        <input 
+                          type="number" 
                           value={checklistData.projeto_comercial?.num_pavimentos || ''}
                           onChange={e => setChecklistData({
                             ...checklistData,
@@ -3223,23 +4126,79 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                         />
                       </div>
 
-                      {comercialZona && (
-                        <div style={{ padding: '10px', background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.15)', borderRadius: '4px', marginTop: '4px' }}>
-                          <span style={{ display: 'block', fontWeight: '600', color: 'var(--blue)', marginBottom: '4px' }}>Afastamentos Mínimos Exigidos pela Lei:</span>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '6px' }}>
-                            <span><strong>Frente:</strong> {comercialNumPavimentos > 0 ? `${comercialAfExigido.toFixed(2)} m` : '-'}</span>
-                            <span><strong>Lateral e Fundos:</strong> {comercialNumPavimentos > 0 ? `${comercialAlfExigido.toFixed(2)} m` : '-'}</span>
-                          </div>
-                          <span style={{ display: 'block', fontSize: '10px', color: 'var(--text3)', lineHeight: '1.3' }}>
-                            ℹ️ {comercialAfastamentoDesc}
-                          </span>
-                        </div>
-                      )}
+                      <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Recuo Frontal (m):</span>
+                        <input 
+                          type="number" 
+                          value={checklistData.projeto_comercial?.recuo_frontal || ''}
+                          onChange={e => setChecklistData({
+                            ...checklistData,
+                            projeto_comercial: { ...checklistData.projeto_comercial, recuo_frontal: e.target.value }
+                          })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-                        <input
-                          type="checkbox"
-                          id="comercial_assinado"
+                      <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Recuo Lateral (m):</span>
+                        <input 
+                          type="number" 
+                          value={checklistData.projeto_comercial?.recuo_lateral || ''}
+                          onChange={e => setChecklistData({
+                            ...checklistData,
+                            projeto_comercial: { ...checklistData.projeto_comercial, recuo_lateral: e.target.value }
+                          })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Recuo Fundos (m):</span>
+                        <input 
+                          type="number" 
+                          value={checklistData.projeto_comercial?.recuo_fundos || ''}
+                          onChange={e => setChecklistData({
+                            ...checklistData,
+                            projeto_comercial: { ...checklistData.projeto_comercial, recuo_fundos: e.target.value }
+                          })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Taxa de Ocupação:</span>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          placeholder="Ex: 0.50"
+                          value={checklistData.projeto_comercial?.taxa_ocupacao || ''}
+                          onChange={e => setChecklistData({
+                            ...checklistData,
+                            projeto_comercial: { ...checklistData.projeto_comercial, taxa_ocupacao: e.target.value }
+                          })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Coef. Aproveitamento:</span>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          placeholder="Ex: 1.20"
+                          value={checklistData.projeto_comercial?.coef_aproveitamento || ''}
+                          onChange={e => setChecklistData({
+                            ...checklistData,
+                            projeto_comercial: { ...checklistData.projeto_comercial, coef_aproveitamento: e.target.value }
+                          })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '6px' }}>
+                        <input 
+                          id="comercial_proj_assinado"
+                          type="checkbox" 
                           checked={!!checklistData.projeto_comercial?.projeto_assinado}
                           onChange={e => setChecklistData({
                             ...checklistData,
@@ -3247,647 +4206,626 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                           })}
                           style={{ cursor: 'pointer' }}
                         />
-                        <label htmlFor="comercial_assinado" style={{ cursor: 'pointer', fontWeight: '500' }}>
-                          PROJETO ASSINADO
+                        <label htmlFor="comercial_proj_assinado" style={{ cursor: 'pointer', fontWeight: '500' }}>
+                          Projeto devidamente assinado?
                         </label>
                       </div>
                     </div>
                   </div>
 
-                  {/* BLOCO B: Afastamentos do Projeto */}
+                  {/* BLOCO 2: Tabela de Verificação (TSN e CA) */}
                   <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                     <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                      📐 Afastamentos Declarados no Projeto
+                      📊 2. Tabela de Verificação (TSN e CA)
+                    </strong>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '12px' }}>
+                      {/* TSN */}
+                      <div>
+                        <strong style={{ display: 'block', fontSize: '11px', color: 'var(--blue)', marginBottom: '8px' }}>
+                          Verificação da Taxa de Solo Natural (TSN)
+                        </strong>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px', marginBottom: '6px' }}>
+                          <div>
+                            <label style={{ fontSize: '10px', color: 'var(--text3)' }}>Área do Terreno (m²):</label>
+                            <input 
+                              type="number"
+                              value={checklistData.projeto_comercial?.tsn_area_terreno || ''}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, tsn_area_terreno: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px', width: '100%' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '10px', color: 'var(--text3)' }}>Área TSN Projeto (m²):</label>
+                            <input 
+                              type="number"
+                              value={checklistData.projeto_comercial?.tsn_area_projeto || ''}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, tsn_area_projeto: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px', width: '100%' }}
+                            />
+                          </div>
+                        </div>
+
+                        {comercialZonaInfo && (
+                          <div style={{ padding: '6px 8px', borderRadius: '4px', background: 'var(--body-bg)', border: '1px solid var(--border)', fontSize: '11px' }}>
+                            <div>Zona: <strong>{comercialZona}</strong> | Mínimo Exigido: <strong>{tsnMin}%</strong></div>
+                            <div>Calculado no Projeto: <strong>{tsnCalculada.toFixed(2)}%</strong></div>
+                            <div style={{ marginTop: '4px', fontWeight: 'bold', color: tsnConforme ? 'var(--green)' : 'var(--red)' }}>
+                              {tsnConforme ? '✔️ CONFORME' : `❌ INSUFICIENTE (Exige mínimo de ${tsnMin}%)`}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* CA */}
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
+                        <strong style={{ display: 'block', fontSize: '11px', color: 'var(--blue)', marginBottom: '8px' }}>
+                          Verificação do Coeficiente de Aproveitamento (CA)
+                        </strong>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px', marginBottom: '6px' }}>
+                          <div>
+                            <label style={{ fontSize: '10px', color: 'var(--text3)' }}>Área do Terreno (m²):</label>
+                            <input 
+                              type="number"
+                              value={checklistData.projeto_comercial?.ca_area_terreno || ''}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, ca_area_terreno: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px', width: '100%' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '10px', color: 'var(--text3)' }}>Área Construída (m²):</label>
+                            <input 
+                              type="number"
+                              value={checklistData.projeto_comercial?.ca_area_construida || ''}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, ca_area_construida: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px', width: '100%' }}
+                            />
+                          </div>
+                        </div>
+
+                        {comercialZonaInfo && (
+                          <div style={{ padding: '6px 8px', borderRadius: '4px', background: 'var(--body-bg)', border: '1px solid var(--border)', fontSize: '11px' }}>
+                            <div>Zona: <strong>{comercialZona}</strong> | Máximo Permitido: <strong>{caMaxStr}</strong></div>
+                            <div>Calculado no Projeto: <strong>{caCalculado.toFixed(2)}</strong></div>
+                            <div style={{ marginTop: '4px', fontWeight: 'bold', color: caConforme ? 'var(--green)' : 'var(--red)' }}>
+                              {caConforme ? '✔️ CONFORME' : `❌ EXTRAPOLA O LIMITE (Máximo: ${caMaxStr})`}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BLOCO 3: Áreas Arborizadas do Imóvel */}
+                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                      🌳 3. Áreas Arborizadas do Imóvel
                     </strong>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
-                      
-                      {/* Recuo Frontal */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
-                          <span>Recuo Frontal (m):</span>
-                          <input
-                            type="number"
-                            placeholder="Recuo frontal do projeto"
-                            value={checklistData.projeto_comercial?.recuo_frontal || ''}
-                            onChange={e => setChecklistData({
-                              ...checklistData,
-                              projeto_comercial: { ...checklistData.projeto_comercial, recuo_frontal: e.target.value }
-                            })}
-                            style={{ padding: '3px 6px', fontSize: '11px' }}
-                          />
-                        </div>
-                        {comercialZona && checklistData.projeto_comercial?.recuo_frontal !== '' && (() => {
-                          const val = parseFloat(checklistData.projeto_comercial.recuo_frontal.replace(',', '.'));
-                          const ok = val >= comercialAfExigido;
-                          return (
-                            <div style={{ alignSelf: 'flex-end', fontSize: '10px', fontWeight: '600', padding: '2px 6px', borderRadius: '3px', color: ok ? 'var(--green)' : 'var(--red)', background: ok ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', display: 'inline-block' }}>
-                              {ok ? '✔️ CONFORME' : `❌ DIVERGENTE (Mínimo: ${comercialAfExigido.toFixed(2)} m)`}
-                            </div>
-                          );
-                        })()}
-                      </div>
+                      <p style={{ margin: '0 0 6px 0', fontSize: '11px', color: 'var(--text3)', lineHeight: '1.4' }}>
+                        Implantar arborização na calçada adjacente ao imóvel, na proporção de 01 (uma) árvore para cada 6 m de testada do imóvel.
+                      </p>
 
-                      {/* Recuo Lateral */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
-                          <span>Recuo Lateral (m):</span>
-                          <input
-                            type="number"
-                            placeholder="Recuo lateral do projeto"
-                            value={checklistData.projeto_comercial?.recuo_lateral || ''}
-                            onChange={e => setChecklistData({
-                              ...checklistData,
-                              projeto_comercial: { ...checklistData.projeto_comercial, recuo_lateral: e.target.value }
-                            })}
-                            style={{ padding: '3px 6px', fontSize: '11px' }}
-                          />
-                        </div>
-                        {comercialZona && checklistData.projeto_comercial?.recuo_lateral !== '' && (() => {
-                          const val = parseFloat(checklistData.projeto_comercial.recuo_lateral.replace(',', '.'));
-                          const ok = val >= comercialAlfExigido;
-                          return (
-                            <div style={{ alignSelf: 'flex-end', fontSize: '10px', fontWeight: '600', padding: '2px 6px', borderRadius: '3px', color: ok ? 'var(--green)' : 'var(--red)', background: ok ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', display: 'inline-block' }}>
-                              {ok ? '✔️ CONFORME' : `❌ DIVERGENTE (Mínimo: ${comercialAlfExigido.toFixed(2)} m)`}
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                      {/* Recuo Fundos */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
-                          <span>Recuo de Fundos (m):</span>
-                          <input
-                            type="number"
-                            placeholder="Recuo de fundos do projeto"
-                            value={checklistData.projeto_comercial?.recuo_fundos || ''}
-                            onChange={e => setChecklistData({
-                              ...checklistData,
-                              projeto_comercial: { ...checklistData.projeto_comercial, recuo_fundos: e.target.value }
-                            })}
-                            style={{ padding: '3px 6px', fontSize: '11px' }}
-                          />
-                        </div>
-                        {comercialZona && checklistData.projeto_comercial?.recuo_fundos !== '' && (() => {
-                          const val = parseFloat(checklistData.projeto_comercial.recuo_fundos.replace(',', '.'));
-                          const ok = val >= comercialAlfExigido;
-                          return (
-                            <div style={{ alignSelf: 'flex-end', fontSize: '10px', fontWeight: '600', padding: '2px 6px', borderRadius: '3px', color: ok ? 'var(--green)' : 'var(--red)', background: ok ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', display: 'inline-block' }}>
-                              {ok ? '✔️ CONFORME' : `❌ DIVERGENTE (Mínimo: ${comercialAlfExigido.toFixed(2)} m)`}
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                    </div>
-                  </div>
-
-                  {/* BLOCO C: Tabela de Verificação (TSN) */}
-                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
-                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                      🌿 Tabela de Verificação: TSN
-                    </strong>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>Área do Terreno (m²):</span>
-                        <input
-                          type="number"
-                          value={checklistData.projeto_comercial?.tsn_area_terreno || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: {
-                              ...checklistData.projeto_comercial,
-                              tsn_area_terreno: e.target.value,
-                              ca_area_terreno: e.target.value // preenche ambos de forma facilitadora
-                            }
-                          })}
-                          style={{ padding: '3px 6px', fontSize: '11px' }}
-                        />
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>Área TSN Projeto (m²):</span>
-                        <input
-                          type="number"
-                          value={checklistData.projeto_comercial?.tsn_area_projeto || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: { ...checklistData.projeto_comercial, tsn_area_projeto: e.target.value }
-                          })}
-                          style={{ padding: '3px 6px', fontSize: '11px' }}
-                        />
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>TSN Anexo 13-A (%):</span>
-                        <input
-                          type="text"
-                          readOnly
-                          value={comercialZonaInfo ? `${comercialZonaInfo.tsn}%` : '-'}
-                          style={{ padding: '3px 6px', fontSize: '11px', background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border)', cursor: 'not-allowed' }}
-                        />
-                      </div>
-
-                      {areaTerrenoTSN > 0 && areaProjetoTSN > 0 && comercialZonaInfo && (
-                        <div style={{ padding: '8px', background: tsnConforme ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)', border: `1px solid ${tsnConforme ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`, borderRadius: '4px', fontSize: '11px', marginTop: '4px' }}>
-                          <span><strong>Taxa Obtida:</strong> {tsnCalculada.toFixed(2)}%</span>
-                          <span style={{ float: 'right', fontWeight: 'bold', color: tsnConforme ? 'var(--green)' : 'var(--red)' }}>
-                            {tsnConforme ? '✔️ CONFORME' : '❌ DIVERGENTE'}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* BLOCO D: Tabela de Verificação (CA) */}
-                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
-                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                      🏗️ Tabela de Verificação: CA
-                    </strong>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>Área do Terreno (m²):</span>
-                        <input
-                          type="number"
-                          value={checklistData.projeto_comercial?.ca_area_terreno || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: {
-                              ...checklistData.projeto_comercial,
-                              ca_area_terreno: e.target.value,
-                              tsn_area_terreno: e.target.value
-                            }
-                          })}
-                          style={{ padding: '3px 6px', fontSize: '11px' }}
-                        />
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>Área Construída (m²):</span>
-                        <input
-                          type="number"
-                          value={checklistData.projeto_comercial?.ca_area_construida || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: { ...checklistData.projeto_comercial, ca_area_construida: e.target.value }
-                          })}
-                          style={{ padding: '3px 6px', fontSize: '11px' }}
-                        />
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>CA Máx Anexo 13-A:</span>
-                        <input
-                          type="text"
-                          readOnly
-                          value={comercialZonaInfo ? (comercialZonaInfo.caMax === 'e' ? 'E (Outorga Onerosa)' : comercialZonaInfo.caMax) : '-'}
-                          style={{ padding: '3px 6px', fontSize: '11px', background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border)', cursor: 'not-allowed' }}
-                        />
-                      </div>
-
-                      {areaTerrenoCA > 0 && areaConstruidaCA > 0 && comercialZonaInfo && (
-                        <div style={{ padding: '8px', background: caConforme ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)', border: `1px solid ${caConforme ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`, borderRadius: '4px', fontSize: '11px', marginTop: '4px' }}>
-                          <span><strong>CA Projeto:</strong> {caCalculado.toFixed(3)}</span>
-                          <span style={{ float: 'right', fontWeight: 'bold', color: caConforme ? 'var(--green)' : 'var(--red)' }}>
-                            {caConforme ? '✔️ CONFORME' : '❌ INCOMPATÍVEL'}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* BLOCO E: Dimensões do Lote e Divisas */}
-                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
-                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                      📋 Medidas do Lote e Divisas
-                    </strong>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                        <div>
-                          <span style={{ display: 'block', marginBottom: '3px', fontWeight: '500' }}>Medidas no Projeto:</span>
-                          <input
-                            type="text"
-                            placeholder="Ex: 15x30 m"
-                            value={checklistData.projeto_comercial?.medidas_lote_projeto || ''}
-                            onChange={e => setChecklistData({
-                              ...checklistData,
-                              projeto_comercial: { ...checklistData.projeto_comercial, medidas_lote_projeto: e.target.value }
-                            })}
-                            style={{ padding: '3px 6px', fontSize: '11px', width: '100%' }}
-                          />
-                        </div>
-                        <div>
-                          <span style={{ display: 'block', marginBottom: '3px', fontWeight: '500' }}>Medidas na Escritura:</span>
-                          <input
-                            type="text"
-                            placeholder="Ex: 15x30 m"
-                            value={checklistData.projeto_comercial?.medidas_lote_certidao || ''}
-                            onChange={e => setChecklistData({
-                              ...checklistData,
-                              projeto_comercial: { ...checklistData.projeto_comercial, medidas_lote_certidao: e.target.value }
-                            })}
-                            style={{ padding: '3px 6px', fontSize: '11px', width: '100%' }}
-                          />
-                        </div>
-                      </div>
-
-                      {checklistData.projeto_comercial?.medidas_lote_projeto && checklistData.projeto_comercial?.medidas_lote_certidao && (() => {
-                        const status = checkDivergencia(checklistData.projeto_comercial.medidas_lote_projeto, checklistData.projeto_comercial.medidas_lote_certidao);
-                        if (status === 'conforme') {
-                          return <div style={{ fontSize: '10px', color: 'var(--green)', fontWeight: '600', textAlign: 'center' }}>✔️ Medidas do projeto coincidem com a Escritura.</div>;
-                        }
-                        if (status === 'divergente') {
-                          return <div style={{ fontSize: '10px', color: 'var(--red)', fontWeight: '600', textAlign: 'center' }}>⚠️ As medidas declaradas no Projeto e na Escritura divergem!</div>;
-                        }
-                        return null;
-                      })()}
-
-                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '6px', marginTop: '4px' }}>
-                        <span style={{ display: 'block', fontWeight: '600', marginBottom: '4px' }}>Confrontantes Conforme a Escritura:</span>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                          <div>
-                            <span style={{ fontSize: '10px' }}>Frente:</span>
-                            <input
-                              type="text"
-                              value={checklistData.projeto_comercial?.confrontantes_frente || ''}
-                              onChange={e => setChecklistData({
-                                ...checklistData,
-                                projeto_comercial: { ...checklistData.projeto_comercial, confrontantes_frente: e.target.value }
-                              })}
-                              style={{ padding: '2px 4px', fontSize: '10px', width: '100%' }}
-                            />
-                          </div>
-                          <div>
-                            <span style={{ fontSize: '10px' }}>Fundos:</span>
-                            <input
-                              type="text"
-                              value={checklistData.projeto_comercial?.confrontantes_fundos || ''}
-                              onChange={e => setChecklistData({
-                                ...checklistData,
-                                projeto_comercial: { ...checklistData.projeto_comercial, confrontantes_fundos: e.target.value }
-                              })}
-                              style={{ padding: '2px 4px', fontSize: '10px', width: '100%' }}
-                            />
-                          </div>
-                          <div>
-                            <span style={{ fontSize: '10px' }}>Lado Direito:</span>
-                            <input
-                              type="text"
-                              value={checklistData.projeto_comercial?.confrontantes_direito || ''}
-                              onChange={e => setChecklistData({
-                                ...checklistData,
-                                projeto_comercial: { ...checklistData.projeto_comercial, confrontantes_direito: e.target.value }
-                              })}
-                              style={{ padding: '2px 4px', fontSize: '10px', width: '100%' }}
-                            />
-                          </div>
-                          <div>
-                            <span style={{ fontSize: '10px' }}>Lado Esquerdo:</span>
-                            <input
-                              type="text"
-                              value={checklistData.projeto_comercial?.confrontantes_esquerdo || ''}
-                              onChange={e => setChecklistData({
-                                ...checklistData,
-                                projeto_comercial: { ...checklistData.projeto_comercial, confrontantes_esquerdo: e.target.value }
-                              })}
-                              style={{ padding: '2px 4px', fontSize: '10px', width: '100%' }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* BLOCO F: Plantio de Árvores */}
-                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
-                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                      🌳 Áreas Arborizadas do Imóvel
-                    </strong>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', alignItems: 'center' }}>
                         <span>Testada Total (m):</span>
-                        <input
+                        <input 
                           type="number"
-                          placeholder="Muro frontal em metros"
                           value={checklistData.projeto_comercial?.testada_total || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: { ...checklistData.projeto_comercial, testada_total: e.target.value }
-                          })}
+                          onChange={e => {
+                            const testada = e.target.value;
+                            const arv = testada ? Math.ceil(parseFloat(testada) / 6).toString() : '';
+                            setChecklistData({ 
+                              ...checklistData, 
+                              projeto_comercial: { ...checklistData.projeto_comercial, testada_total: testada, qtd_arvores: arv } 
+                            });
+                          }}
                           style={{ padding: '3px 6px', fontSize: '11px' }}
                         />
                       </div>
 
-                      {testadaComercial > 0 && (
-                        <div style={{ padding: '6px 8px', background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.1)', borderRadius: '4px', fontSize: '11px', lineHeight: '1.4' }}>
-                          📢 <strong>Exigência Legal (Calçada):</strong> Requer no mínimo <strong>{arvoresExigidasComercial}</strong> {arvoresExigidasComercial === 1 ? 'árvore' : 'árvores'} na calçada adjacente (01 árvore a cada 6m de testada).
-                        </div>
-                      )}
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>Quantidade no Projeto:</span>
-                        <input
-                          type="number"
-                          placeholder="Árvores declaradas"
+                      <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Árvores Exigidas:</span>
+                        <input 
+                          type="text"
+                          disabled
                           value={checklistData.projeto_comercial?.qtd_arvores || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: { ...checklistData.projeto_comercial, qtd_arvores: e.target.value }
-                          })}
+                          style={{ padding: '3px 6px', fontSize: '11px', background: 'rgba(0,0,0,0.05)', border: '1px solid var(--border)', fontWeight: 'bold', color: 'var(--blue)' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BLOCO 4: Análise de Drenagem */}
+                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                      🌊 4. Análise de Drenagem
+                    </strong>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
+                      <div>
+                        <span style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Área Alagável:</span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {[
+                            { val: 'sim', label: 'SIM' },
+                            { val: 'nao', label: 'NÃO' },
+                            { val: 'nsapl', label: 'NSAPL' }
+                          ].map(opt => (
+                            <button
+                              key={opt.val}
+                              type="button"
+                              onClick={() => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, drenagem_alagavel: opt.val } })}
+                              className="btn btn-xs"
+                              style={{
+                                flex: 1,
+                                fontSize: '10px',
+                                padding: '4px',
+                                background: checklistData.projeto_comercial?.drenagem_alagavel === opt.val ? (opt.val === 'sim' ? 'rgba(239, 68, 68, 0.15)' : opt.val === 'nao' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(107, 114, 128, 0.15)') : 'transparent',
+                                color: checklistData.projeto_comercial?.drenagem_alagavel === opt.val ? (opt.val === 'sim' ? 'var(--red)' : opt.val === 'nao' ? 'var(--green)' : 'var(--text1)') : 'var(--text2)',
+                                border: `1px solid ${checklistData.projeto_comercial?.drenagem_alagavel === opt.val ? (opt.val === 'sim' ? 'var(--red)' : opt.val === 'nao' ? 'var(--green)' : 'var(--border)') : 'var(--border)'}`,
+                                fontWeight: '600'
+                              }}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <span style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Área de Risco:</span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {[
+                            { val: 'sim', label: 'SIM' },
+                            { val: 'nao', label: 'NÃO' },
+                            { val: 'nsapl', label: 'NSAPL' }
+                          ].map(opt => (
+                            <button
+                              key={opt.val}
+                              type="button"
+                              onClick={() => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, drenagem_risco: opt.val } })}
+                              className="btn btn-xs"
+                              style={{
+                                flex: 1,
+                                fontSize: '10px',
+                                padding: '4px',
+                                background: checklistData.projeto_comercial?.drenagem_risco === opt.val ? (opt.val === 'sim' ? 'rgba(239, 68, 68, 0.15)' : opt.val === 'nao' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(107, 114, 128, 0.15)') : 'transparent',
+                                color: checklistData.projeto_comercial?.drenagem_risco === opt.val ? (opt.val === 'sim' ? 'var(--red)' : opt.val === 'nao' ? 'var(--green)' : 'var(--text1)') : 'var(--text2)',
+                                border: `1px solid ${checklistData.projeto_comercial?.drenagem_risco === opt.val ? (opt.val === 'sim' ? 'var(--red)' : opt.val === 'nao' ? 'var(--green)' : 'var(--border)') : 'var(--border)'}`,
+                                fontWeight: '600'
+                              }}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr auto', gap: '8px', alignItems: 'center' }}>
+                            <span>Distân. Riachos/Lagoas (m):</span>
+                            <input 
+                              type={checklistData.projeto_comercial?.drenagem_distancia_riacho === 'NSAPL' ? 'text' : 'number'}
+                              placeholder={checklistData.projeto_comercial?.drenagem_distancia_riacho === 'NSAPL' ? 'Não se aplica' : 'Min 30 m'}
+                              disabled={checklistData.projeto_comercial?.drenagem_distancia_riacho === 'NSAPL'}
+                              value={checklistData.projeto_comercial?.drenagem_distancia_riacho || ''}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, drenagem_distancia_riacho: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px' }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const isNS = checklistData.projeto_comercial?.drenagem_distancia_riacho === 'NSAPL';
+                                setChecklistData({
+                                  ...checklistData,
+                                  projeto_comercial: {
+                                    ...checklistData.projeto_comercial,
+                                    drenagem_distancia_riacho: isNS ? '' : 'NSAPL'
+                                  }
+                                });
+                              }}
+                              className="btn btn-xs"
+                              style={{
+                                padding: '3px 6px',
+                                fontSize: '10px',
+                                background: checklistData.projeto_comercial?.drenagem_distancia_riacho === 'NSAPL' ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
+                                color: checklistData.projeto_comercial?.drenagem_distancia_riacho === 'NSAPL' ? 'var(--red)' : 'var(--text2)',
+                                border: `1px solid ${checklistData.projeto_comercial?.drenagem_distancia_riacho === 'NSAPL' ? 'var(--red)' : 'var(--border)'}`,
+                                fontWeight: '600'
+                              }}
+                            >
+                              NSAPL
+                            </button>
+                          </div>
+                          {checklistData.projeto_comercial?.drenagem_distancia_riacho !== '' && checklistData.projeto_comercial?.drenagem_distancia_riacho !== 'NSAPL' && parseFloat(checklistData.projeto_comercial?.drenagem_distancia_riacho) < 30 && (
+                            <div style={{ padding: '8px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '4px', color: 'var(--red)', fontSize: '10px', fontWeight: '500', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                              ⚠️ <strong>ATENÇÃO MÁXIMA:</strong> Distância menor que 30 m! Requer verificação adicional.
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr auto', gap: '8px', alignItems: 'center' }}>
+                            <span>Distân. Canais/Talvegues (m):</span>
+                            <input 
+                              type={checklistData.projeto_comercial?.drenagem_distancia_canal === 'NSAPL' ? 'text' : 'number'}
+                              placeholder={checklistData.projeto_comercial?.drenagem_distancia_canal === 'NSAPL' ? 'Não se aplica' : 'Min 10 m'}
+                              disabled={checklistData.projeto_comercial?.drenagem_distancia_canal === 'NSAPL'}
+                              value={checklistData.projeto_comercial?.drenagem_distancia_canal || ''}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, drenagem_distancia_canal: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px' }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const isNS = checklistData.projeto_comercial?.drenagem_distancia_canal === 'NSAPL';
+                                setChecklistData({
+                                  ...checklistData,
+                                  projeto_comercial: {
+                                    ...checklistData.projeto_comercial,
+                                    drenagem_distancia_canal: isNS ? '' : 'NSAPL'
+                                  }
+                                });
+                              }}
+                              className="btn btn-xs"
+                              style={{
+                                padding: '3px 6px',
+                                fontSize: '10px',
+                                background: checklistData.projeto_comercial?.drenagem_distancia_canal === 'NSAPL' ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
+                                color: checklistData.projeto_comercial?.drenagem_distancia_canal === 'NSAPL' ? 'var(--red)' : 'var(--text2)',
+                                border: `1px solid ${checklistData.projeto_comercial?.drenagem_distancia_canal === 'NSAPL' ? 'var(--red)' : 'var(--border)'}`,
+                                fontWeight: '600'
+                              }}
+                            >
+                              NSAPL
+                            </button>
+                          </div>
+                          {checklistData.projeto_comercial?.drenagem_distancia_canal !== '' && checklistData.projeto_comercial?.drenagem_distancia_canal !== 'NSAPL' && parseFloat(checklistData.projeto_comercial?.drenagem_distancia_canal) < 10 && (
+                            <div style={{ padding: '8px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '4px', color: 'var(--red)', fontSize: '10px', fontWeight: '500', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                              ⚠️ <strong>ATENÇÃO MÁXIMA:</strong> Distância menor que 10 m! Requer verificação adicional.
+                            </div>
+                          )}
+                        </div>
+
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BLOCO 5: Verificação de ART/RRT */}
+                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                      📋 5. Verificação da ART/RRT
+                    </strong>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
+                      <div>
+                        <span style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Atividade técnica descrita na ART/RRT corresponde?</span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {[
+                            { val: 'corresponde', label: 'CORRESPONDE' },
+                            { val: 'nao_corresponde', label: 'NÃO CORRESPONDE' }
+                          ].map(opt => (
+                            <button
+                              key={opt.val}
+                              type="button"
+                              onClick={() => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, art_rrt_atividade_corresponde: opt.val } })}
+                              className="btn btn-xs"
+                              style={{
+                                flex: 1,
+                                fontSize: '10px',
+                                padding: '4px',
+                                background: checklistData.projeto_comercial?.art_rrt_atividade_corresponde === opt.val ? (opt.val === 'corresponde' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)') : 'transparent',
+                                color: checklistData.projeto_comercial?.art_rrt_atividade_corresponde === opt.val ? (opt.val === 'corresponde' ? 'var(--green)' : 'var(--red)') : 'var(--text2)',
+                                border: `1px solid ${checklistData.projeto_comercial?.art_rrt_atividade_corresponde === opt.val ? (opt.val === 'corresponde' ? 'var(--green)' : 'var(--red)') : 'var(--border)'}`,
+                                fontWeight: '600'
+                              }}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', alignItems: 'center' }}>
+                          <span>Área da ART (m²):</span>
+                          <input 
+                            type="number"
+                            value={checklistData.projeto_comercial?.art_rrt_area_art || ''}
+                            onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, art_rrt_area_art: e.target.value } })}
+                            style={{ padding: '3px 6px', fontSize: '11px' }}
+                          />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', alignItems: 'center' }}>
+                          <span>Área da RRT (m²):</span>
+                          <input 
+                            type="number"
+                            value={checklistData.projeto_comercial?.art_rrt_area_rrt || ''}
+                            onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, art_rrt_area_rrt: e.target.value } })}
+                            style={{ padding: '3px 6px', fontSize: '11px' }}
+                          />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', alignItems: 'center' }}>
+                          <span>Área do Projeto (m²):</span>
+                          <input 
+                            type="number"
+                            value={checklistData.projeto_comercial?.art_rrt_area_projeto || ''}
+                            onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, art_rrt_area_projeto: e.target.value } })}
+                            style={{ padding: '3px 6px', fontSize: '11px' }}
+                          />
+                        </div>
+
+                        {(() => {
+                          const areaArt = parseFloat(checklistData.projeto_comercial?.art_rrt_area_art?.toString().replace(',', '.')) || 0;
+                          const areaRrt = parseFloat(checklistData.projeto_comercial?.art_rrt_area_rrt?.toString().replace(',', '.')) || 0;
+                          const areaProj = parseFloat(checklistData.projeto_comercial?.art_rrt_area_projeto?.toString().replace(',', '.')) || 0;
+
+                          const areasPreenchidas = [
+                            { nome: 'ART', valor: areaArt, raw: checklistData.projeto_comercial?.art_rrt_area_art },
+                            { nome: 'RRT', valor: areaRrt, raw: checklistData.projeto_comercial?.art_rrt_area_rrt },
+                            { nome: 'Projeto', valor: areaProj, raw: checklistData.projeto_comercial?.art_rrt_area_projeto }
+                          ].filter(item => item.raw && parseFloat(item.raw.toString().replace(',', '.')) > 0);
+
+                          const hasAreaDivergencia = areasPreenchidas.length > 1 && !areasPreenchidas.every(item => item.valor === areasPreenchidas[0].valor);
+
+                          if (hasAreaDivergencia) {
+                            return (
+                              <div style={{ padding: '8px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '4px', color: 'var(--red)', fontSize: '10px', fontWeight: '500', marginTop: '6px' }}>
+                                ⚠️ <strong>DIVERGÊNCIA DE ÁREA DETECTADA:</strong> As áreas informadas divergem entre si! Verifique os documentos.
+                              </div>
+                            );
+                          } else if (areasPreenchidas.length > 1) {
+                            return (
+                              <div style={{ padding: '6px 8px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.2)', borderRadius: '4px', color: 'var(--green)', fontSize: '10px', fontWeight: '500', marginTop: '6px', textAlign: 'center' }}>
+                                ✔️ Áreas em conformidade entre os documentos informados.
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BLOCO 6: Estudo de Impacto de Vizinhança (EIV) */}
+                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                      📋 6. Estudo de Impacto de Vizinhança (EIV)
+                    </strong>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Área Terreno (m²):</span>
+                        <input 
+                          type="number"
+                          value={checklistData.projeto_comercial?.eiv_terreno_area || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, eiv_terreno_area: e.target.value } })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Área Construída (m²):</span>
+                        <input 
+                          type="number"
+                          value={checklistData.projeto_comercial?.eiv_construida_area || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, eiv_construida_area: e.target.value } })}
                           style={{ padding: '3px 6px', fontSize: '11px' }}
                         />
                       </div>
 
-                      {testadaComercial > 0 && checklistData.projeto_comercial?.qtd_arvores !== '' && (() => {
-                        const ok = arvoresProjetoComercial >= arvoresExigidasComercial;
+                      {(() => {
+                        const areaTerr = parseFloat(checklistData.projeto_comercial?.eiv_terreno_area) || 0;
+                        const areaConst = parseFloat(checklistData.projeto_comercial?.eiv_construida_area) || 0;
+                        const eivObrigatorio = areaTerr >= 10000 || areaConst >= 5000;
+
                         return (
-                          <div style={{ padding: '6px 8px', background: ok ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)', border: `1px solid ${ok ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`, borderRadius: '4px', fontSize: '11px', fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>Projeto: {arvoresProjetoComercial} de {arvoresExigidasComercial}</span>
-                            <span style={{ fontWeight: 'bold', color: ok ? 'var(--green)' : 'var(--red)' }}>
-                              {ok ? '✔️ CONFORME' : '❌ INSUFICIENTE'}
-                            </span>
+                          <div style={{ 
+                            padding: '10px', 
+                            background: eivObrigatorio ? 'rgba(239, 68, 68, 0.08)' : 'rgba(34, 197, 94, 0.08)', 
+                            border: `1px solid ${eivObrigatorio ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)'}`, 
+                            borderRadius: '4px',
+                            fontWeight: '600',
+                            fontSize: '11px',
+                            textAlign: 'center',
+                            color: eivObrigatorio ? 'var(--red)' : 'var(--green)',
+                            marginTop: '8px'
+                          }}>
+                            {eivObrigatorio ? '⚠️ EIV OBRIGATÓRIO (Terreno ≥ 10.000m² ou Const. ≥ 5.000m²)' : '✔️ DISPENSADO DE EIV'}
                           </div>
                         );
                       })()}
                     </div>
                   </div>
 
-                  {/* BLOCO G: Estudo de Impacto de Vizinhança (EIV) */}
+                  {/* BLOCO 7: Depósito de Lixo */}
                   <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                     <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                      🏢 Estudo de Impacto de Vizinhança (EIV)
+                      🗑️ 7. Depósito de Lixo (Art. 19)
                     </strong>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>Área do Terreno (m²):</span>
-                        <input
-                          type="number"
-                          placeholder="Área total do lote"
-                          value={checklistData.projeto_comercial?.eiv_terreno_area || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: { ...checklistData.projeto_comercial, eiv_terreno_area: e.target.value }
-                          })}
-                          style={{ padding: '3px 6px', fontSize: '11px' }}
-                        />
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>Área Construída (m²):</span>
-                        <input
-                          type="number"
-                          placeholder="Área construída total"
-                          value={checklistData.projeto_comercial?.eiv_construida_area || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: { ...checklistData.projeto_comercial, eiv_construida_area: e.target.value }
-                          })}
-                          style={{ padding: '3px 6px', fontSize: '11px' }}
-                        />
-                      </div>
-
-                      {(checklistData.projeto_comercial?.eiv_terreno_area !== '' || checklistData.projeto_comercial?.eiv_construida_area !== '') && (() => {
-                        const areaT = parseFloat(checklistData.projeto_comercial.eiv_terreno_area) || 0;
-                        const areaC = parseFloat(checklistData.projeto_comercial.eiv_construida_area) || 0;
-                        const precisaEIV = areaT >= 10000 || areaC >= 5000;
-
-                        if (precisaEIV) {
-                          return (
-                            <div style={{ padding: '8px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '4px', color: 'var(--red)', fontSize: '11px', fontWeight: '500' }}>
-                              ⚠️ <strong>EIV OBRIGATÓRIO (Art. 195):</strong> O empreendimento atinge os parâmetros (Terreno ≥ 10.000m² ou Construído ≥ 5.000m²). Requer Estudo de Impacto de Vizinhança.
-                            </div>
-                          );
-                        } else {
-                          return (
-                            <div style={{ padding: '6px 8px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.2)', borderRadius: '4px', color: 'var(--green)', fontSize: '11px', fontWeight: '500', textAlign: 'center' }}>
-                              ✔️ <strong>DISPENSADO DE EIV:</strong> Empreendimento abaixo dos limites do Art. 195.
-                            </div>
-                          );
-                        }
-                      })()}
-                    </div>
-                  </div>
-
-                  {/* BLOCO H: Depósito de Lixo (Código de Obras, Art. 19) */}
-                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
-                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                      🗑️ Depósito de Lixo (Art. 19)
-                    </strong>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', alignItems: 'center' }}>
                         <span>Nº de Pavimentos:</span>
-                        <input
+                        <input 
                           type="number"
-                          placeholder="Pavimentos da edificação"
                           value={checklistData.projeto_comercial?.lixo_pavimentos || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: { ...checklistData.projeto_comercial, lixo_pavimentos: e.target.value }
-                          })}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, lixo_pavimentos: e.target.value } })}
                           style={{ padding: '3px 6px', fontSize: '11px' }}
                         />
                       </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', alignItems: 'center' }}>
                         <span>Nº de Economias:</span>
-                        <input
+                        <input 
                           type="number"
-                          placeholder="Economias / Lojas"
                           value={checklistData.projeto_comercial?.lixo_economias || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: { ...checklistData.projeto_comercial, lixo_economias: e.target.value }
-                          })}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, lixo_economias: e.target.value } })}
                           style={{ padding: '3px 6px', fontSize: '11px' }}
                         />
                       </div>
 
-                      {(checklistData.projeto_comercial?.lixo_pavimentos !== '' || checklistData.projeto_comercial?.lixo_economias !== '') && (() => {
-                        const pavs = parseInt(checklistData.projeto_comercial.lixo_pavimentos) || 0;
-                        const econs = parseInt(checklistData.projeto_comercial.lixo_economias) || 0;
-                        const precisaDepLixo = pavs > 2 || econs > 2;
+                      {(() => {
+                        const pavs = parseInt(checklistData.projeto_comercial?.lixo_pavimentos) || 0;
+                        const econs = parseInt(checklistData.projeto_comercial?.lixo_economias) || 0;
+                        const lixoObrigatorio = pavs > 2 || econs > 2;
 
-                        if (precisaDepLixo) {
-                          return (
-                            <div style={{ padding: '8px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '4px', color: 'var(--red)', fontSize: '10px', lineHeight: '1.4' }}>
-                              ⚠️ <strong>DEPÓSITO DE LIXO OBRIGATÓRIO (Art. 19):</strong>
-                              <p style={{ marginTop: '4px', fontStyle: 'italic' }}>
-                                "Em edificações com mais de dois pavimentos ou mais de duas economias, será obrigatória a construção de depósito de lixo no pavimento ao nível do logradouro, com área mínima de 6,00 m² (seis metros quadrados), com piso e paredes, até a altura mínima de 2,00 m (dois metros), revestidos de material liso, lavável e impermeável."
-                              </p>
-                            </div>
-                          );
-                        } else {
-                          return (
-                            <div style={{ padding: '6px 8px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.2)', borderRadius: '4px', color: 'var(--green)', fontSize: '11px', fontWeight: '500', textAlign: 'center' }}>
-                              ✔️ <strong>Dispensado de depósito de lixo regulamentar</strong> (≤ 2 pavimentos e ≤ 2 economias).
-                            </div>
-                          );
-                        }
+                        return (
+                          <div style={{ 
+                            padding: '10px', 
+                            background: lixoObrigatorio ? 'rgba(239, 68, 68, 0.08)' : 'rgba(34, 197, 94, 0.08)', 
+                            border: `1px solid ${lixoObrigatorio ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)'}`, 
+                            borderRadius: '4px',
+                            fontWeight: '600',
+                            fontSize: '11px',
+                            color: lixoObrigatorio ? 'var(--red)' : 'var(--green)',
+                            marginTop: '8px',
+                            lineHeight: '1.4'
+                          }}>
+                            {lixoObrigatorio ? (
+                              <div>
+                                ⚠️ <strong>DEPÓSITO DE LIXO OBRIGATÓRIO:</strong>
+                                <span style={{ display: 'block', fontWeight: 'normal', fontSize: '10px', marginTop: '4px', color: 'var(--text2)' }}>
+                                  Área mínima de 6m² revestida com material impermeável até 2,00m de altura.
+                                </span>
+                              </div>
+                            ) : (
+                              '✔️ DISPENSADO DE DEPÓSITO DE LIXO'
+                            )}
+                          </div>
+                        );
                       })()}
                     </div>
                   </div>
 
-                  {/* BLOCO I: Pé-Direito Comercial e Jirau (Art. 27) */}
+                  {/* BLOCO 8: Pé-Direito Comercial e Jirau */}
                   <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                     <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                      📐 Pé-Direito Comercial e Jirau (Art. 27)
+                      📐 8. Pé-Direito Comercial e Jirau (Art. 27)
                     </strong>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>Nome do Compartimento:</span>
-                        <input
+                      <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Nome Compartimento:</span>
+                        <input 
                           type="text"
                           placeholder="Ex: Salão Principal"
-                          value={checklistData.projeto_comercial?.pe_direito_sala_nome || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_sala_nome: e.target.value }
-                          })}
+                          value={checklistData.projeto_comercial?.pe_direito_sala_name || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_sala_name: e.target.value } })}
                           style={{ padding: '3px 6px', fontSize: '11px' }}
                         />
                       </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>Área do Compartimento (m²):</span>
-                        <input
+                      <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Área (m²):</span>
+                        <input 
                           type="number"
-                          placeholder="Área útil"
                           value={checklistData.projeto_comercial?.pe_direito_sala_area || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_sala_area: e.target.value }
-                          })}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_sala_area: e.target.value } })}
                           style={{ padding: '3px 6px', fontSize: '11px' }}
                         />
                       </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px', alignItems: 'center' }}>
-                        <span>Pé-Direito do Projeto (m):</span>
-                        <input
+                      <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Pé-direito (m):</span>
+                        <input 
                           type="number"
-                          placeholder="Pé-direito"
+                          step="0.01"
                           value={checklistData.projeto_comercial?.pe_direito_sala_pe || ''}
-                          onChange={e => setChecklistData({
-                            ...checklistData,
-                            projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_sala_pe: e.target.value }
-                          })}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_sala_pe: e.target.value } })}
                           style={{ padding: '3px 6px', fontSize: '11px' }}
                         />
                       </div>
 
                       {checklistData.projeto_comercial?.pe_direito_sala_area !== '' && checklistData.projeto_comercial?.pe_direito_sala_pe !== '' && (() => {
-                        const areaS = parseFloat(checklistData.projeto_comercial.pe_direito_sala_area) || 0;
-                        const peS = parseFloat(checklistData.projeto_comercial.pe_direito_sala_pe) || 0;
-                        
-                        if (areaS > 75) {
-                          const ok = peS >= 3.50;
-                          return (
-                            <div style={{ padding: '6px 8px', background: ok ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)', border: `1px solid ${ok ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`, borderRadius: '4px', fontSize: '11px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span>Pé-direito Sala (&gt;75m²): {peS.toFixed(2)}m (Min: 3.50m)</span>
-                              <span style={{ fontWeight: 'bold', color: ok ? 'var(--green)' : 'var(--red)' }}>
-                                {ok ? '✔️ CONFORME' : '❌ INCORRETO'}
-                              </span>
-                            </div>
-                          );
-                        } else if (areaS > 0) {
-                          return (
-                            <div style={{ padding: '6px 8px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.2)', borderRadius: '4px', color: 'var(--green)', fontSize: '11px', fontWeight: '500', textAlign: 'center' }}>
-                              ✔️ Pé-direito conforme (Compartimento ≤ 75m²).
-                            </div>
-                          );
-                        }
-                        return null;
+                        const area = parseFloat(checklistData.projeto_comercial.pe_direito_sala_area) || 0;
+                        const pe = parseFloat(checklistData.projeto_comercial.pe_direito_sala_pe) || 0;
+                        const peExigido = area > 75 ? 3.50 : 3.00;
+                        const ok = pe >= peExigido;
+
+                        return (
+                          <div style={{ padding: '6px 8px', background: ok ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)', border: `1px solid ${ok ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`, borderRadius: '4px', fontSize: '11px', fontWeight: '500', color: ok ? 'var(--green)' : 'var(--red)', marginTop: '4px' }}>
+                            {ok ? `✔️ Pé-direito conforme (Exigido: ${peExigido.toFixed(2)}m)` : `❌ INSUFICIENTE: Exige pé-direito mínimo de ${peExigido.toFixed(2)}m para salas com ${area > 75 ? 'mais' : 'até'} de 75m².`}
+                          </div>
+                        );
                       })()}
 
-                      {/* Jirau (Mezanino) */}
-                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '6px' }}>
-                        <span style={{ display: 'block', fontWeight: '600', marginBottom: '6px' }}>Possui Jirau (Mezanino)?</span>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          {['sim', 'nao'].map(opt => (
+                      {/* Jirau */}
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '6px' }}>
+                        <span style={{ display: 'block', fontWeight: '500', marginBottom: '4px' }}>Há Jirau (Mezanino) no Projeto?</span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {[
+                            { val: 'sim', label: 'SIM' },
+                            { val: 'nao', label: 'NÃO' }
+                          ].map(opt => (
                             <button
-                              key={opt}
+                              key={opt.val}
                               type="button"
-                              onClick={() => setChecklistData({
-                                ...checklistData,
-                                projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_jirau_existe: opt }
-                              })}
+                              onClick={() => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_jirau_existe: opt.val } })}
                               className="btn btn-xs"
                               style={{
                                 flex: 1,
                                 fontSize: '10px',
                                 padding: '4px',
-                                background: checklistData.projeto_comercial?.pe_direito_jirau_existe === opt ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
-                                color: checklistData.projeto_comercial?.pe_direito_jirau_existe === opt ? 'var(--blue)' : 'var(--text2)',
-                                border: `1px solid ${checklistData.projeto_comercial?.pe_direito_jirau_existe === opt ? 'var(--blue)' : 'var(--border)'}`,
+                                background: checklistData.projeto_comercial?.pe_direito_jirau_existe === opt.val ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                                color: checklistData.projeto_comercial?.pe_direito_jirau_existe === opt.val ? 'var(--blue)' : 'var(--text2)',
+                                border: `1px solid ${checklistData.projeto_comercial?.pe_direito_jirau_existe === opt.val ? 'var(--blue)' : 'var(--border)'}`,
                                 fontWeight: '600'
                               }}
                             >
-                              {opt === 'sim' ? 'SIM' : 'NÃO'}
+                              {opt.label}
                             </button>
                           ))}
                         </div>
                       </div>
 
                       {checklistData.projeto_comercial?.pe_direito_jirau_existe === 'sim' && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px', background: 'rgba(0,0,0,0.01)', border: '1px solid var(--border)', padding: '10px', borderRadius: '4px' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '6px', alignItems: 'center' }}>
-                            <span>Área do Jirau (m²):</span>
-                            <input
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: 'var(--body-bg)', padding: '10px', borderRadius: '4px', border: '1px solid var(--border)', marginTop: '4px' }}>
+                          <strong style={{ fontSize: '11px', color: 'var(--blue)', marginBottom: '4px' }}>Medidas do Jirau</strong>
+                          
+                          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
+                            <span>Área Jirau (m²):</span>
+                            <input 
                               type="number"
                               value={checklistData.projeto_comercial?.pe_direito_jirau_area || ''}
-                              onChange={e => setChecklistData({
-                                ...checklistData,
-                                projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_jirau_area: e.target.value }
-                              })}
-                              style={{ padding: '2px 4px', fontSize: '11px' }}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_jirau_area: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px' }}
                             />
                           </div>
-                          {checklistData.projeto_comercial?.pe_direito_jirau_area !== '' && (() => {
-                            const areaS = parseFloat(checklistData.projeto_comercial.pe_direito_sala_area) || 0;
-                            const areaJ = parseFloat(checklistData.projeto_comercial.pe_direito_jirau_area) || 0;
-                            const maxJ = areaS * 0.30;
-                            const ok = areaJ <= maxJ;
+
+                          {checklistData.projeto_comercial?.pe_direito_sala_area && checklistData.projeto_comercial?.pe_direito_jirau_area && (() => {
+                            const areaSala = parseFloat(checklistData.projeto_comercial.pe_direito_sala_area) || 0;
+                            const areaJirau = parseFloat(checklistData.projeto_comercial.pe_direito_jirau_area) || 0;
+                            const limite = areaSala * 0.30;
+                            const ok = areaJirau <= limite;
                             return (
                               <div style={{ fontSize: '10px', color: ok ? 'var(--green)' : 'var(--red)', fontWeight: '600' }}>
-                                {ok ? `✔️ Área do Jirau OK (${areaJ.toFixed(2)}m² ≤ ${maxJ.toFixed(2)}m² [30%])` : `❌ Área excede limite de 30% do compartimento (Máx: ${maxJ.toFixed(2)}m²)`}
+                                {ok ? `✔️ Área ocupada (${areaJirau.toFixed(2)}m²) dentro do limite de 30% (${limite.toFixed(2)}m²)` : `❌ Ultrapassa limite de 30% (${limite.toFixed(2)}m²)`}
                               </div>
                             );
                           })()}
 
-                          <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '6px', alignItems: 'center', marginTop: '4px' }}>
-                            <span>Pé-Direito Acima (m):</span>
-                            <input
+                          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center', marginTop: '4px' }}>
+                            <span>Pé-direito Acima (m):</span>
+                            <input 
                               type="number"
+                              step="0.01"
                               value={checklistData.projeto_comercial?.pe_direito_jirau_acima || ''}
-                              onChange={e => setChecklistData({
-                                ...checklistData,
-                                projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_jirau_acima: e.target.value }
-                              })}
-                              style={{ padding: '2px 4px', fontSize: '11px' }}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_jirau_acima: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px' }}
                             />
                           </div>
 
-                          <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '6px', alignItems: 'center' }}>
-                            <span>Pé-Direito Abaixo (m):</span>
-                            <input
+                          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', alignItems: 'center' }}>
+                            <span>Pé-direito Abaixo (m):</span>
+                            <input 
                               type="number"
+                              step="0.01"
                               value={checklistData.projeto_comercial?.pe_direito_jirau_abaixo || ''}
-                              onChange={e => setChecklistData({
-                                ...checklistData,
-                                projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_jirau_abaixo: e.target.value }
-                              })}
-                              style={{ padding: '2px 4px', fontSize: '11px' }}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, pe_direito_jirau_abaixo: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px' }}
                             />
                           </div>
-                          {(checklistData.projeto_comercial?.pe_direito_jirau_acima !== '' || checklistData.projeto_comercial?.pe_direito_jirau_abaixo !== '') && (() => {
+
+                          {checklistData.projeto_comercial?.pe_direito_jirau_acima && checklistData.projeto_comercial?.pe_direito_jirau_abaixo && (() => {
                             const acimaJ = parseFloat(checklistData.projeto_comercial.pe_direito_jirau_acima) || 0;
                             const abaixoJ = parseFloat(checklistData.projeto_comercial.pe_direito_jirau_abaixo) || 0;
                             const ok = acimaJ >= 2.20 && abaixoJ >= 2.20;
@@ -3902,10 +4840,531 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                     </div>
                   </div>
 
+                  {/* BLOCO 9: Medidas do Lote vs Escritura */}
+                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                      📐 9. Medidas do Lote vs Escritura
+                    </strong>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <span>Lote Projeto (Projeto Arquitetônico):</span>
+                        <textarea 
+                          rows={2}
+                          value={checklistData.projeto_comercial?.medidas_lote_projeto || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, medidas_lote_projeto: e.target.value } })}
+                          style={{ padding: '4px 6px', fontSize: '11px', width: '100%', resize: 'vertical' }}
+                          placeholder="Digite as dimensões do lote segundo o projeto..."
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
+                        <span>Lote Certidão de Inteiro Teor / Escritura:</span>
+                        <textarea 
+                          rows={2}
+                          value={checklistData.projeto_comercial?.medidas_lote_certidao || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, medidas_lote_certidao: e.target.value } })}
+                          style={{ padding: '4px 6px', fontSize: '11px', width: '100%', resize: 'vertical' }}
+                          placeholder="Digite as dimensões do lote segundo a escritura/certidão..."
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BLOCO 10: Confrontantes */}
+                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                      👥 10. Confrontantes (Confrontam com Escritura ou Certidão)
+                    </strong>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
+                      <strong style={{ fontSize: '11px', color: 'var(--blue)' }}>Confrontantes no Projeto:</strong>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '6px', alignItems: 'center' }}>
+                        <span>Frente:</span>
+                        <input 
+                          type="text"
+                          value={checklistData.projeto_comercial?.confrontantes_frente_projeto || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, confrontantes_frente_projeto: e.target.value } })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '6px', alignItems: 'center' }}>
+                        <span>Fundos:</span>
+                        <input 
+                          type="text"
+                          value={checklistData.projeto_comercial?.confrontantes_fundos_projeto || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, confrontantes_fundos_projeto: e.target.value } })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '6px', alignItems: 'center' }}>
+                        <span>LD (Dir.):</span>
+                        <input 
+                          type="text"
+                          value={checklistData.projeto_comercial?.confrontantes_ld_projeto || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, confrontantes_ld_projeto: e.target.value } })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '6px', alignItems: 'center' }}>
+                        <span>LE (Esq.):</span>
+                        <input 
+                          type="text"
+                          value={checklistData.projeto_comercial?.confrontantes_le_projeto || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, confrontantes_le_projeto: e.target.value } })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+
+                      <strong style={{ fontSize: '11px', color: 'var(--blue)', borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '6px' }}>Confrontantes na Certidão/Escritura:</strong>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '6px', alignItems: 'center' }}>
+                        <span>Frente:</span>
+                        <input 
+                          type="text"
+                          value={checklistData.projeto_comercial?.confrontantes_frente_certidao || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, confrontantes_frente_certidao: e.target.value } })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '6px', alignItems: 'center' }}>
+                        <span>Fundos:</span>
+                        <input 
+                          type="text"
+                          value={checklistData.projeto_comercial?.confrontantes_fundos_certidao || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, confrontantes_fundos_certidao: e.target.value } })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '6px', alignItems: 'center' }}>
+                        <span>LD (Dir.):</span>
+                        <input 
+                          type="text"
+                          value={checklistData.projeto_comercial?.confrontantes_ld_certidao || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, confrontantes_ld_certidao: e.target.value } })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '6px', alignItems: 'center' }}>
+                        <span>LE (Esq.):</span>
+                        <input 
+                          type="text"
+                          value={checklistData.projeto_comercial?.confrontantes_le_certidao || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, confrontantes_le_certidao: e.target.value } })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BLOCO 11: Área de Uso Comum & Molhadas */}
+                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                      🏢 11. Área de Uso Comum & Áreas Molhadas
+                    </strong>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
+                      <div>
+                        <span style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Área de Uso Comum:</span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {[
+                            { val: 'sim', label: 'SIM' },
+                            { val: 'nsapl', label: 'NSAPL' }
+                          ].map(opt => (
+                            <button
+                              key={opt.val}
+                              type="button"
+                              onClick={() => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, area_comum_comercial: opt.val } })}
+                              className="btn btn-xs"
+                              style={{
+                                flex: 1,
+                                fontSize: '10px',
+                                padding: '4px',
+                                background: checklistData.projeto_comercial?.area_comum_comercial === opt.val ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                                color: checklistData.projeto_comercial?.area_comum_comercial === opt.val ? 'var(--blue)' : 'var(--text2)',
+                                border: `1px solid ${checklistData.projeto_comercial?.area_comum_comercial === opt.val ? 'var(--blue)' : 'var(--border)'}`,
+                                fontWeight: '600'
+                              }}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <strong style={{ fontSize: '11px', color: 'var(--blue)', marginBottom: '4px' }}>Especificações de Áreas Molhadas:</strong>
+                        
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <input 
+                            id="comercial_revestimento"
+                            type="checkbox"
+                            checked={!!checklistData.projeto_comercial?.revestimento_ceramico}
+                            onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, revestimento_ceramico: e.target.checked } })}
+                            style={{ cursor: 'pointer' }}
+                          />
+                          <label htmlFor="comercial_revestimento" style={{ cursor: 'pointer' }}>Revestimento cerâmico/equiv. em áreas molhadas?</label>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <input 
+                            id="comercial_tinta"
+                            type="checkbox"
+                            checked={!!checklistData.projeto_comercial?.tinta_impermeavel}
+                            onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, tinta_impermeavel: e.target.checked } })}
+                            style={{ cursor: 'pointer' }}
+                          />
+                          <label htmlFor="comercial_tinta" style={{ cursor: 'pointer' }}>Tinta impermeável aplicada nas áreas adequadas?</label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BLOCO 12: Afastamentos e Prisma de Ventilação */}
+                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                      <strong style={{ fontSize: '13px', color: 'var(--text2)' }}>
+                        💨 12. Afastamentos e Prisma de Ventilação
+                      </strong>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        {[
+                          { val: 'APLICAVEL', label: 'APLICÁVEL' },
+                          { val: 'NSAPL', label: 'NSAPL' }
+                        ].map(opt => (
+                          <button
+                            key={opt.val}
+                            type="button"
+                            onClick={() => {
+                              const isNS = opt.val === 'NSAPL';
+                              setChecklistData({
+                                ...checklistData,
+                                projeto_comercial: {
+                                  ...checklistData.projeto_comercial,
+                                  prisma_nsapl: opt.val,
+                                  ...(isNS ? { distancia_lote_vizinho: '', prisma_altura_h: '', prisma_resultado: '' } : {})
+                                }
+                              });
+                            }}
+                            className="btn btn-xs"
+                            style={{
+                              fontSize: '9px',
+                              padding: '2px 6px',
+                              background: (checklistData.projeto_comercial?.prisma_nsapl || 'APLICAVEL') === opt.val ? (opt.val === 'APLICAVEL' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(239, 68, 68, 0.15)') : 'transparent',
+                              color: (checklistData.projeto_comercial?.prisma_nsapl || 'APLICAVEL') === opt.val ? (opt.val === 'APLICAVEL' ? 'var(--blue)' : 'var(--red)') : 'var(--text2)',
+                              border: `1px solid ${(checklistData.projeto_comercial?.prisma_nsapl || 'APLICAVEL') === opt.val ? (opt.val === 'APLICAVEL' ? 'var(--blue)' : 'var(--red)') : 'var(--border)'}`,
+                              fontWeight: '600'
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', opacity: isPrismaNS ? 0.5 : 1, pointerEvents: isPrismaNS ? 'none' : 'auto' }}>
+                      <div>
+                        <span style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Janelas voltadas para lotes vizinhos (Afastamento mínimo de 1.5 m):</span>
+                        <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '8px', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text3)' }}>Distância lote vizinho (m):</span>
+                          <input 
+                            type="number"
+                            disabled={isPrismaNS}
+                            value={checklistData.projeto_comercial?.distancia_lote_vizinho || ''}
+                            onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, distancia_lote_vizinho: e.target.value } })}
+                            style={{ padding: '3px 6px', fontSize: '11px' }}
+                          />
+                        </div>
+                        {checklistData.projeto_comercial?.distancia_lote_vizinho !== '' && !isPrismaNS && (() => {
+                          const val = parseFloat(checklistData.projeto_comercial?.distancia_lote_vizinho);
+                          const ok = val >= 1.5;
+                          return (
+                            <div style={{ alignSelf: 'flex-end', fontSize: '10px', fontWeight: '600', padding: '2px 6px', borderRadius: '3px', color: ok ? 'var(--green)' : 'var(--red)', background: ok ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', display: 'inline-block', marginTop: '4px' }}>
+                              {ok ? '✔️ CONFORME' : '❌ DIVERGENTE (Mínimo: 1.50 m)'}
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px' }}>
+                        <strong style={{ display: 'block', marginBottom: '6px', color: 'var(--blue)' }}>Prisma de ventilação (Art. 13 - L = 1/3 * H)</strong>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '8px' }}>
+                          <div>
+                            <label style={{ fontSize: '10px', color: 'var(--text3)' }}>Altura da edificação H (m):</label>
+                            <input 
+                              type="number"
+                              disabled={isPrismaNS}
+                              value={checklistData.projeto_comercial?.prisma_altura_h || ''}
+                              onChange={e => {
+                                const h = e.target.value;
+                                const res = h ? (parseFloat(h) / 3).toFixed(2) + ' m' : '';
+                                setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, prisma_altura_h: h, prisma_resultado: res } });
+                              }}
+                              style={{ padding: '3px 6px', fontSize: '11px', width: '100%' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '10px', color: 'var(--text3)' }}>L (Resultado):</label>
+                            <input 
+                              type="text"
+                              disabled
+                              value={checklistData.projeto_comercial?.prisma_resultado || ''}
+                              style={{ padding: '3px 6px', fontSize: '11px', width: '100%', background: 'rgba(0,0,0,0.05)', border: '1px solid var(--border)', color: 'var(--text1)' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div style={{ padding: '10px', background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: '4px', color: 'var(--text2)', fontSize: '11px', lineHeight: '1.4' }}>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
+                            <span style={{ fontSize: '14px' }}>ℹ️</span>
+                            <div>
+                              <p style={{ margin: '0 0 6px 0' }}>O <strong>§ 3º</strong> do Art. 13 estabelece: <em>"Os vãos de iluminação e ventilação deverão obedecer à distância mínima de 1,50 m (um metro e cinquenta centímetros) das divisas do lote."</em></p>
+                              <p style={{ margin: 0 }}>O <strong>§ 1º</strong> determina: <em>"O prisma de ventilação e iluminação poderá ter formato retangular, desde que o seu lado menor seja igual a 70% de L e a área resultante seja igual à calculada."</em></p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BLOCO 13: Dimensionamento de Estacionamento */}
+                  <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                    <strong style={{ display: 'block', fontSize: '13px', marginBottom: '12px', color: 'var(--text2)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                      🚗 13. Dimensionamento de Estacionamento (Lei 034/2022)
+                    </strong>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span>Área Total Construída (m²):</span>
+                        <input 
+                          type="number"
+                          value={checklistData.projeto_comercial?.estac_area_total_construida || ''}
+                          onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, estac_area_total_construida: e.target.value } })}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
+                        />
+                      </div>
+
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px' }}>
+                        <span style={{ display: 'block', fontWeight: '600', marginBottom: '6px', color: 'var(--blue)' }}>Deduções / Áreas Não Computáveis (Art. 137):</span>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                            <span 
+                              title="Compreende toda a área destinada à guarda de veículos (vagas), bem como as faixas de circulação, pistas de manobra e rampas de acesso veicular."
+                              style={{ borderBottom: '1px dotted var(--text2)', cursor: 'help' }}
+                            >
+                              Estacionamento/Garagem (m²):
+                            </span>
+                            <input 
+                              type="number"
+                              value={checklistData.projeto_comercial?.estac_deducao_garagem || ''}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, estac_deducao_garagem: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px' }}
+                            />
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                            <span 
+                              title="Engloba compartimentos acessórios sem permanência humana prolongada (depósitos de material/lixo), além de áreas técnicas como casas de máquinas, barriletes, centrais de ar-condicionado e reservatórios (inferiores e superiores)."
+                              style={{ borderBottom: '1px dotted var(--text2)', cursor: 'help' }}
+                            >
+                              Áreas Técnicas e Depósitos (m²):
+                            </span>
+                            <input 
+                              type="number"
+                              value={checklistData.projeto_comercial?.estac_deducao_tecnica || ''}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, estac_deducao_tecnica: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px' }}
+                            />
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                            <span 
+                              title="Corresponde ao somatório das áreas ocupadas por caixas de escadas, rampas de acessibilidade/pedestres e poços de elevadores, contabilizadas em todos os pavimentos por onde perpassam."
+                              style={{ borderBottom: '1px dotted var(--text2)', cursor: 'help' }}
+                            >
+                              Circulação Vertical (m²):
+                            </span>
+                            <input 
+                              type="number"
+                              value={checklistData.projeto_comercial?.estac_deducao_circulacao || ''}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, estac_deducao_circulacao: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px' }}
+                            />
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                            <span 
+                              title="Salões de festas, jogos, academias ou áreas de convivência que sejam de uso comum do condomínio/edifício (aplicável se houver área comum de funcionários/público classificada como lazer)."
+                              style={{ borderBottom: '1px dotted var(--text2)', cursor: 'help' }}
+                            >
+                              Lazer e Convivência (m²):
+                            </span>
+                            <input 
+                              type="number"
+                              value={checklistData.projeto_comercial?.estac_deducao_lazer || ''}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, estac_deducao_lazer: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px' }}
+                            />
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                            <span style={{ fontWeight: '500' }}>Fachada Ativa no Térreo (m²):</span>
+                            <input 
+                              type="number"
+                              value={checklistData.projeto_comercial?.estac_deducao_fachada_ativa || ''}
+                              onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, estac_deducao_fachada_ativa: e.target.value } })}
+                              style={{ padding: '3px 6px', fontSize: '11px' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', background: 'rgba(0,0,0,0.01)', padding: '6px', borderRadius: '4px' }}>
+                          <span>Total Não Computável: <strong>{estacTotalNaoComputavel.toFixed(2)} m²</strong></span>
+                          <span>Área Computável Final: <strong>{estacAreaComputavel.toFixed(2)} m²</strong></span>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                          <span>Vagas Exigidas por Lei:</span>
+                          <input 
+                            type="text"
+                            disabled
+                            value={estacIsento ? 'ISENTO (≤ 500 m²)' : `${estacVagasExigidas} ${estacVagasExigidas === 1 ? 'vaga' : 'vagas'}`}
+                            style={{ padding: '3px 6px', fontSize: '11px', background: 'rgba(0,0,0,0.05)', border: '1px solid var(--border)', fontWeight: 'bold', color: 'var(--blue)' }}
+                          />
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', alignItems: 'center' }}>
+                          <span>Vagas no Projeto:</span>
+                          <input 
+                            type="number"
+                            placeholder="Número de vagas"
+                            value={checklistData.projeto_comercial?.estac_vagas_projeto || ''}
+                            onChange={e => setChecklistData({ ...checklistData, projeto_comercial: { ...checklistData.projeto_comercial, estac_vagas_projeto: e.target.value } })}
+                            style={{ padding: '3px 6px', fontSize: '11px' }}
+                          />
+                        </div>
+
+                        {checklistData.projeto_comercial?.estac_area_total_construida !== '' && (
+                          <div style={{ padding: '6px 8px', background: estacConforme ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)', border: `1px solid ${estacConforme ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`, borderRadius: '4px', fontSize: '11px', fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>
+                              {estacIsento ? 'Isento de Vagas' : `Projeto: ${estacVagasProjeto} de ${estacVagasExigidas}`}
+                            </span>
+                            <span style={{ fontWeight: 'bold', color: estacConforme ? 'var(--green)' : 'var(--red)' }}>
+                              {estacIsento ? '✔️ ISENTO DE VAGAS' : estacConforme ? '✔️ CONFORME' : '❌ INSUFICIENTE'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div>
             );
           })()}
+
+          {/* ═══════════════════════════════════════════════════════════════
+              CARD 5 — ANÁLISE DE AFASTAMENTOS (residencial e comercial)
+          ═══════════════════════════════════════════════════════════════ */}
+          <CardAfastamentos
+            zonaKey={
+              checklistType === 'comercial'
+                ? (checklistData.projeto_comercial?.zona_kmz || '')
+                : (checklistData.projeto_residencial?.zona_kmz || '')
+            }
+            numPavimentos={
+              checklistType === 'comercial'
+                ? (checklistData.projeto_comercial?.num_pavimentos || '')
+                : (checklistData.projeto_residencial?.num_pavimentos || '')
+            }
+            nsapl={
+              checklistType === 'comercial'
+                ? (checklistData.projeto_comercial?.afast_nsapl || false)
+                : (checklistData.projeto_residencial?.afast_nsapl || false)
+            }
+            setNsapl={val => {
+              const key = checklistType === 'comercial' ? 'projeto_comercial' : 'projeto_residencial';
+              setChecklistData(prev => ({
+                ...prev,
+                [key]: { ...prev[key], afast_nsapl: val }
+              }));
+            }}
+            esquina={
+              checklistType === 'comercial'
+                ? (checklistData.projeto_comercial?.afast_esquina || 'nao')
+                : (checklistData.projeto_residencial?.afast_esquina || 'nao')
+            }
+            setEsquina={val => {
+              const key = checklistType === 'comercial' ? 'projeto_comercial' : 'projeto_residencial';
+              setChecklistData(prev => ({
+                ...prev,
+                [key]: { ...prev[key], afast_esquina: val }
+              }));
+            }}
+            adotaAlinhamento={
+              checklistType === 'comercial'
+                ? (checklistData.projeto_comercial?.afast_adota_alinhamento || false)
+                : (checklistData.projeto_residencial?.afast_adota_alinhamento || false)
+            }
+            setAdotaAlinhamento={val => {
+              const key = checklistType === 'comercial' ? 'projeto_comercial' : 'projeto_residencial';
+              setChecklistData(prev => ({
+                ...prev,
+                [key]: { ...prev[key], afast_adota_alinhamento: val }
+              }));
+            }}
+            frontal1={
+              checklistType === 'comercial'
+                ? (checklistData.projeto_comercial?.afast_frontal1 || '')
+                : (checklistData.projeto_residencial?.afast_frontal1 || '')
+            }
+            setFrontal1={val => {
+              const key = checklistType === 'comercial' ? 'projeto_comercial' : 'projeto_residencial';
+              setChecklistData(prev => ({
+                ...prev,
+                [key]: { ...prev[key], afast_frontal1: val }
+              }));
+            }}
+            frontal2={
+              checklistType === 'comercial'
+                ? (checklistData.projeto_comercial?.afast_frontal2 || '')
+                : (checklistData.projeto_residencial?.afast_frontal2 || '')
+            }
+            setFrontal2={val => {
+              const key = checklistType === 'comercial' ? 'projeto_comercial' : 'projeto_residencial';
+              setChecklistData(prev => ({
+                ...prev,
+                [key]: { ...prev[key], afast_frontal2: val }
+              }));
+            }}
+            lateral={
+              checklistType === 'comercial'
+                ? (checklistData.projeto_comercial?.afast_lateral || '')
+                : (checklistData.projeto_residencial?.afast_lateral || '')
+            }
+            setLateral={val => {
+              const key = checklistType === 'comercial' ? 'projeto_comercial' : 'projeto_residencial';
+              setChecklistData(prev => ({
+                ...prev,
+                [key]: { ...prev[key], afast_lateral: val }
+              }));
+            }}
+            fundos={
+              checklistType === 'comercial'
+                ? (checklistData.projeto_comercial?.afast_fundos || '')
+                : (checklistData.projeto_residencial?.afast_fundos || '')
+            }
+            setFundos={val => {
+              const key = checklistType === 'comercial' ? 'projeto_comercial' : 'projeto_residencial';
+              setChecklistData(prev => ({
+                ...prev,
+                [key]: { ...prev[key], afast_fundos: val }
+              }));
+            }}
+          />
 
           <hr style={{ border: '0', borderTop: '1px solid var(--border)', margin: '24px 0' }} />
 
@@ -4106,11 +5565,43 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
               <button type="button" className="btn btn-outline" onClick={handleMapSearch}>🔍 Localizar</button>
             </div>
             
-            <div id="leaflet-picker-map" style={{height: '350px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '10px'}}></div>
+            <div style={{position: 'relative', marginBottom: '10px'}}>
+              <div id="leaflet-picker-map" style={{height: '400px', borderRadius: '8px', border: '1px solid var(--border)'}}></div>
+              
+              <div style={{position: 'absolute', top: '10px', left: '50px', zIndex: 1000, background: 'rgba(255,255,255,0.95)', padding: '10px', borderRadius: '6px', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', width: '280px'}}>
+                <div style={{marginBottom: '8px', borderBottom: '1px solid #ccc', paddingBottom: '6px'}}>
+                  <strong style={{display: 'block', fontSize: '12px', marginBottom: '4px'}}>1. Selecione a Ferramenta:</strong>
+                  <div style={{display: 'flex', gap: '6px'}}>
+                    <button 
+                      type="button"
+                      onClick={() => setPlacementMode(placementMode === 'main' ? null : 'main')} 
+                      className={`btn btn-sm ${placementMode === 'main' ? 'btn-primary' : 'btn-outline'}`} 
+                      style={{fontSize: '11px', flex: 1, padding: '4px'}}
+                    >📍 Local</button>
+                    <button 
+                      type="button"
+                      onClick={() => setPlacementMode(placementMode === 'ref' ? null : 'ref')} 
+                      className="btn btn-sm"
+                      style={{fontSize: '11px', flex: 1, padding: '4px', border: '1px solid #d97706', color: placementMode === 'ref' ? 'white' : '#d97706', background: placementMode === 'ref' ? '#d97706' : 'transparent'}}
+                    >📍 Referência</button>
+                  </div>
+                  {placementMode && <div style={{fontSize: '10px', color: 'var(--blue)', marginTop: '4px', fontWeight: 'bold', textAlign: 'center'}}>👆 Clique no mapa para posicionar.</div>}
+                </div>
+                <div>
+                  <strong style={{display: 'block', fontSize: '12px', marginBottom: '4px'}}>2. Editar Textos dos Balões:</strong>
+                  <div style={{display: 'flex', flexDirection: 'column', gap: '4px'}}>
+                    <input type="text" value={mainLabel} onChange={e => setMainLabel(e.target.value)} style={{fontSize: '11px', padding: '4px', border: '1px solid #0056b3'}} title="Texto do balão do Local Principal" />
+                    <input type="text" value={refLabel} onChange={e => setRefLabel(e.target.value)} style={{fontSize: '11px', padding: '4px', border: '1px solid #d97706'}} title="Texto do balão de Referência" />
+                  </div>
+                </div>
+              </div>
+            </div>
             
             <div className="fca gap12" style={{background: 'var(--body-bg)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '12px'}}>
-              <div><strong>Latitude Selecionada:</strong> <span className="mono" style={{color: 'var(--green)', fontWeight: 'bold'}}>{tempLat || 'Clique no mapa para marcar'}</span></div>
-              <div><strong>Longitude Selecionada:</strong> <span className="mono" style={{color: 'var(--green)', fontWeight: 'bold'}}>{tempLng || 'Clique no mapa para marcar'}</span></div>
+              <div><strong>Lat (Local):</strong> <span className="mono" style={{color: 'var(--blue)', fontWeight: 'bold'}}>{tempLat || '---'}</span></div>
+              <div><strong>Lng (Local):</strong> <span className="mono" style={{color: 'var(--blue)', fontWeight: 'bold'}}>{tempLng || '---'}</span></div>
+              <div style={{borderLeft: '1px solid var(--border)', paddingLeft: '12px'}}><strong>Lat (Ref):</strong> <span className="mono" style={{color: '#d97706', fontWeight: 'bold'}}>{refLat || '---'}</span></div>
+              <div><strong>Lng (Ref):</strong> <span className="mono" style={{color: '#d97706', fontWeight: 'bold'}}>{refLng || '---'}</span></div>
             </div>
           </div>
 
