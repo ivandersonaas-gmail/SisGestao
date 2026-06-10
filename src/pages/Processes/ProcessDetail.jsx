@@ -3854,7 +3854,7 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                           { nome: 'Projeto', valor: areaProj, raw: checklistData.projeto_residencial?.art_rrt_area_projeto }
                         ].filter(item => item.raw && parseFloat(item.raw.toString().replace(',', '.')) > 0);
 
-                        const hasAreaDivergencia = areasPreenchidas.length > 1 && !areasPreenchidas.every(item => item.valor === areasPreenedidas[0].valor);
+                        const hasAreaDivergencia = areasPreenchidas.length > 1 && !areasPreenchidas.every(item => item.valor === areasPreenchidas[0].valor);
 
                         if (hasAreaDivergencia) {
                           return (
