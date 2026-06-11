@@ -497,17 +497,16 @@ export function AdvancedReports() {
               <table className="rt" style={{borderCollapse: 'collapse', width: '100%'}}>
                 <thead>
                   <tr style={{borderBottom: '1px solid #ccc', background: '#f9f9f9'}}>
-                    <th style={{padding: '6px 4px', textAlign: 'left'}}>Data</th>
+                    <th style={{padding: '6px 4px', textAlign: 'left', width: '150px'}}>Data</th>
                     <th style={{padding: '6px 4px', textAlign: 'left'}}>Processo / Requerente</th>
-                    <th style={{padding: '6px 4px', textAlign: 'left'}}>Ação Efetuada</th>
-                    <th style={{padding: '6px 4px', textAlign: 'left'}}>Observação</th>
-                    {!isAnalyst && <th style={{padding: '6px 4px', textAlign: 'left'}}>Autor</th>}
+                    <th style={{padding: '6px 4px', textAlign: 'left', width: '220px'}}>Ação Efetuada</th>
+                    {!isAnalyst && <th style={{padding: '6px 4px', textAlign: 'left', width: '120px'}}>Autor</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {reportData.movs.map(m => (
                     <React.Fragment key={m.id}>
-                      <tr style={{borderBottom: m.process?.latitude && m.process?.longitude ? 'none' : '1px solid #eee', pageBreakInside: 'avoid'}}>
+                      <tr style={{borderBottom: 'none', pageBreakInside: 'avoid'}}>
                         <td style={{padding: '6px 4px', fontSize: '12px', verticalAlign: 'top'}}>
                           {new Date(m.created_at).toLocaleString('pt-BR')}
                         </td>
@@ -520,14 +519,21 @@ export function AdvancedReports() {
                           <Badge statusId={m.status} />
                           {m.notes && <div style={{fontSize: '11px', color: 'var(--text2)', marginTop: '2px', maxWidth: '300px'}}><i>↳ {m.notes}</i></div>}
                         </td>
-                        <td style={{padding: '6px 4px', fontSize: '12px', verticalAlign: 'top', maxWidth: '300px', fontStyle: 'italic', color: 'var(--text2)'}}>
-                          {getParsedGeoNotes(m.process?.report_observation) || '—'}
-                        </td>
                         {!isAnalyst && <td style={{padding: '6px 4px', verticalAlign: 'top'}}><span style={{fontSize: '12px'}}>{m.created_by_name.split(' ')[0]}</span></td>}
+                      </tr>
+                      <tr style={{borderBottom: m.process?.latitude && m.process?.longitude ? 'none' : '1px solid #eee', pageBreakInside: 'avoid'}}>
+                        <td colSpan={isAnalyst ? 3 : 4} style={{padding: '4px 4px 10px 4px', fontSize: '12px', verticalAlign: 'top'}}>
+                          <div style={{background: '#f8fafc', padding: '8px 12px', borderRadius: '4px', borderLeft: '3px solid #cbd5e1'}}>
+                            <strong style={{color: 'var(--text1)'}}>Observação: </strong>
+                            <span style={{fontStyle: 'italic', color: 'var(--text2)'}}>
+                              {getParsedGeoNotes(m.process?.report_observation) || '—'}
+                            </span>
+                          </div>
+                        </td>
                       </tr>
                       {m.process?.latitude && m.process?.longitude && (
                         <tr style={{borderBottom: '1px solid #eee', background: '#fafafa', pageBreakInside: 'avoid'}} className="print-keep">
-                          <td colSpan={isAnalyst ? 4 : 5} style={{padding: '12px 16px'}}>
+                          <td colSpan={isAnalyst ? 3 : 4} style={{padding: '12px 16px'}}>
                             <div style={{display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap'}}>
                               {/* Mapa Técnico */}
                               <div style={{flex: '1 1 350px', minWidth: '280px'}}>
