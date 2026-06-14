@@ -225,7 +225,11 @@ export function ProcessDetail() {
       pj_contrato_social: { status: 'nsapl', name: '', url: '' },
       pj_cnpj: { status: 'nsapl', name: '', url: '' },
       pj_anuencia_socios: { status: 'nsapl', name: '', url: '' },
-      pj_identificacao_representante: { status: 'nsapl', name: '', url: '' }
+      pj_identificacao_representante: { status: 'nsapl', name: '', url: '' },
+
+      // Projeto e Memorial Descritivo
+      projeto_arquitetonico: { status: 'ausente', name: '', url: '' },
+      memorial_descritivo: { status: 'ausente', name: '', url: '' }
     },
     cadastral: {
       endereco_completo: '',
@@ -388,13 +392,81 @@ export function ProcessDetail() {
   });
 
   const checkDivergencia = (...vals) => {
-    const clean = (v) => v ? v.toString().trim().toLowerCase() : '';
+    const clean = (v) => {
+      if (!v) return '';
+      let s = v.toString().trim();
+      s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // Remover acentos
+      s = s.toLowerCase().replace(/\s+/g, ' '); // Lowercase e normalizar espaços
+      if (s === '' || s === '-' || s === '—' || s === 'null' || s === 'undefined') {
+        return '';
+      }
+      return s;
+    };
+
     const cleanedVals = vals.map(clean).filter(v => v !== '');
     if (cleanedVals.length === 0) return 'empty';
     if (cleanedVals.length === 1) return 'single';
+
+    // 1. Igualdade exata após normalização básica
     const first = cleanedVals[0];
-    const allEqual = cleanedVals.every(v => v === first);
-    return allEqual ? 'conforme' : 'divergente';
+    if (cleanedVals.every(v => v === first)) return 'conforme';
+
+    // 2. Resiliência para valores numéricos ou muito curtos
+    const isNumeric = (str) => !isNaN(str.replace(',', '.').replace(/\s/g, ''));
+    const uniqueVals = [...new Set(cleanedVals)];
+    const hasNumericOrShort = uniqueVals.some(v => v.length < 4 || isNumeric(v));
+    if (hasNumericOrShort) {
+      // Para números ou códigos curtos (ex: lotes/quadras "A", "12"), exige-se igualdade estrita
+      return 'divergente';
+    }
+
+    // 3. Comparação inteligente para strings longas (Nomes, Endereços, Bairros)
+    const sorted = uniqueVals.sort((a, b) => a.length - b.length);
+
+    // Se o menor elemento está contido em todos os outros (ex: "Avenida Cardoso" em "Avenida Cardoso de Souza")
+    const shortest = sorted[0];
+    if (sorted.every(v => v.includes(shortest))) {
+      return 'conforme';
+    }
+
+    // Se houver uma cadeia de continência gradual
+    let isSubsetChain = true;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      if (!sorted[i + 1].includes(sorted[i])) {
+        isSubsetChain = false;
+        break;
+      }
+    }
+    if (isSubsetChain) return 'conforme';
+
+    // 4. Comparação avançada baseada em palavras-chave significativas compartilhadas
+    const stopWords = new Set([
+      'avenida', 'rua', 'travessa', 'praca', 'alameda', 'rodovia', 'estrada',
+      'lote', 'quadra', 'bairro', 'ltda', 'eireli', 'me', 'epp', 'sa', 'cia',
+      'do', 'da', 'de', 'e', 'o', 'a', 'comercio', 'servicos', 'empreendimentos'
+    ]);
+
+    const getMeaningfulWords = (str) => {
+      return str.split(' ')
+        .filter(w => w.length >= 4 && !stopWords.has(w));
+    };
+
+    const wordSets = sorted.map(getMeaningfulWords);
+
+    if (wordSets.some(set => set.length === 0)) {
+      return 'divergente';
+    }
+
+    const firstSet = wordSets[0];
+    const sharedLongWords = firstSet.filter(w => {
+      return w.length >= 5 && wordSets.every(set => set.some(otherW => otherW.includes(w) || w.includes(otherW)));
+    });
+
+    if (sharedLongWords.length > 0) {
+      return 'conforme';
+    }
+
+    return 'divergente';
   };
 
   const checkParametro = (tipo, projetoVal, limiteVal) => {
@@ -687,6 +759,65 @@ export function ProcessDetail() {
     }
   };
 
+  const extractTextFromDoc = async (docItem, key) => {
+    let fileObj = null;
+
+    if (key === 'lic_ambient_files') {
+      if (uploadedFiles.lic_ambient_files) {
+        fileObj = uploadedFiles.lic_ambient_files.find(f => f.name === docItem.name);
+      }
+    } else {
+      fileObj = uploadedFiles[key];
+    }
+
+    const name = docItem.name || '';
+    const isMdOrTxt = name.toLowerCase().endsWith('.md') || name.toLowerCase().endsWith('.txt');
+
+    if (fileObj && fileObj instanceof File) {
+      console.log(`[Extração Local] Lendo arquivo da memória: ${fileObj.name}`);
+      if (isMdOrTxt) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target.result);
+          reader.onerror = (e) => reject(new Error(`Erro ao ler arquivo local ${fileObj.name}`));
+          reader.readAsText(fileObj);
+        });
+      } else {
+        return extractTextFromPdf(fileObj);
+      }
+    }
+
+    if (docItem.url) {
+      console.log(`[Extração Remota] Baixando arquivo do Supabase: ${name}`);
+      try {
+        const response = await fetch(docItem.url);
+        if (!response.ok) {
+          throw new Error(`Erro HTTP ${response.status} ao baixar arquivo.`);
+        }
+        if (isMdOrTxt) {
+          return await response.text();
+        } else {
+          const arrayBuffer = await response.arrayBuffer();
+          const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+          let fullText = '';
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ');
+            fullText += pageText + '\n';
+          }
+          console.log(`[OCR/PDF Remoto] Arquivo: ${name} | Caracteres extraídos: ${fullText.length}`);
+          return fullText;
+        }
+      } catch (err) {
+        console.error(`Erro ao extrair conteúdo de ${name}:`, err);
+        throw new Error(`Falha ao processar arquivo remoto ${name}. Detalhes: ${err.message}`);
+      }
+    }
+
+    return '';
+  };
+
   const handleRunAuditoria = async () => {
     setExtractionLoading(true);
     setExtractionProgress('Salvando arquivos locais e preparando auditoria técnica...');
@@ -701,7 +832,8 @@ export function ProcessDetail() {
         'protocolo', 'bci', 'identificacao_proprietario', 'cnd', 'art_projeto',
         'inteiro_teor', 'art_execucao', 'contrato_compra_venda', 'pf_identificacao',
         'pf_procurador', 'pf_procuracao', 'pj_contrato_social', 'pj_cnpj',
-        'pj_anuencia_socios', 'pj_identificacao_representante'
+        'pj_anuencia_socios', 'pj_identificacao_representante', 'projeto_arquitetonico',
+        'memorial_descritivo'
       ];
 
       docKeys.forEach(key => {
@@ -731,38 +863,298 @@ export function ProcessDetail() {
       }
 
       if (Object.keys(docsToSend).length === 0) {
-        alert('Por favor, anexe ou garanta que há ao menos um arquivo PDF carregado na seção de documentos para iniciar a auditoria automatizada.');
+        alert('Por favor, anexe ou garanta que há ao menos um arquivo carregado na seção de documentos para iniciar a auditoria automatizada.');
         setExtractionLoading(false);
         return;
       }
 
-      setExtractionProgress('Enviando documentos para processamento e análise no backend Python (Flask)...');
+      setExtractionProgress('Lendo e extraindo conteúdo dos documentos...');
 
-      // 3. Fazer requisição ao Backend local em Flask
-      const backendRes = await fetch('http://127.0.0.1:8000/api/run_auditoria', {
+      // 3. Extrair texto de todos os documentos anexados client-side
+      const extractedTexts = {};
+      const extractionPromises = [];
+
+      Object.keys(docsToSend).forEach(key => {
+        if (key === 'lic_ambient_files') return;
+        const docItem = docsToSend[key];
+        extractionPromises.push(
+          (async () => {
+            try {
+              const text = await extractTextFromDoc(docItem, key);
+              if (text && text.trim().length > 0) {
+                extractedTexts[key] = text;
+              }
+            } catch (err) {
+              console.warn(`Erro ao extrair texto de ${key}:`, err);
+            }
+          })()
+        );
+      });
+
+      if (docsToSend.lic_ambient_files) {
+        docsToSend.lic_ambient_files.forEach((docItem, idx) => {
+          extractionPromises.push(
+            (async () => {
+              try {
+                const text = await extractTextFromDoc(docItem, 'lic_ambient_files');
+                if (text && text.trim().length > 0) {
+                  if (!extractedTexts.lic_ambient_files) {
+                    extractedTexts.lic_ambient_files = [];
+                  }
+                  extractedTexts.lic_ambient_files.push(text);
+                }
+              } catch (err) {
+                console.warn(`Erro ao extrair texto de lic_ambient_files [${idx}]:`, err);
+              }
+            })()
+          );
+        });
+      }
+
+      await Promise.all(extractionPromises);
+
+      let docTextsBlock = "";
+      Object.keys(extractedTexts).forEach(key => {
+        if (key === 'lic_ambient_files') {
+          docTextsBlock += `\nDOCUMENTO: LIC_AMBIENTAL (MÚLTIPLOS ARQUIVOS)\n"""\n${extractedTexts.lic_ambient_files.join('\n---\n')}\n"""\n`;
+        } else {
+          docTextsBlock += `\nDOCUMENTO: ${key.toUpperCase()}\n"""\n${extractedTexts[key]}\n"""\n`;
+        }
+      });
+
+      if (!docTextsBlock.trim()) {
+        throw new Error('Não foi possível extrair conteúdo textual legível de nenhum dos arquivos fornecidos.');
+      }
+
+      setExtractionProgress('Enviando documentos para análise estruturada com Inteligência Artificial (Gemini)...');
+
+      // 4. Montar prompt com refinamento de regras
+      const prompt_final = `Analise o texto extraído de documentos de um processo de licenciamento de obras e retorne um objeto JSON contendo dados extraídos de forma exata e fiel, sem alucinações.
+Abaixo estão os textos extraídos dos documentos disponíveis:
+
+${docTextsBlock}
+
+Você deve preencher a tabela de confrontação de dados e também as informações cadastrais encontradas.
+
+REGRAS CRÍTICAS DE EXTRAÇÃO:
+1. SOBRE O DOCUMENTO BCI (Boletim de Cadastro Imobiliário):
+   - Extraia o "Lote" (lote_bci) e a "Quadra" (quadra_bci) UNICAMENTE a partir das informações contidas na seção "ZONEAMENTO" do documento BCI.
+   - Ignore completamente quaisquer informações de Lote e Quadra que estejam sob a seção "INFORMAÇÕES DA INSCRIÇÃO" do BCI, pois estas não nos interessam e são antigas/desconsideradas.
+
+2. SOBRE A COLUNA PROJETO (chaves terminadas em "_projeto"):
+   - Preencha os dados da coluna Projeto (como lote_projeto, quadra_projeto, bairro_projeto, area_terreno_projeto, area_const_projeto, requerente_projeto, endereco_projeto) UNICAMENTE e EXCLUSIVAMENTE a partir dos textos dos documentos identificados como "PROJETO_ARQUITETONICO" ou "MEMORIAL_DESCRITIVO".
+   - Se os documentos "PROJETO_ARQUITETONICO" e "MEMORIAL_DESCRITIVO" NÃO estiverem presentes na listagem de documentos disponíveis acima, você DEVE preencher todos os campos de projeto (lote_projeto, quadra_projeto, bairro_projeto, area_terreno_projeto, area_const_projeto, requerente_projeto, endereco_projeto) estritamente como "-". NÃO copie ou infira os dados do projeto a partir de outros documentos (Certidão, BCI, CND ou ARTs).
+
+3. SOBRE A ART/RRT (chaves contendo "art_projeto" ou "art_execucao"):
+   - Toda e qualquer área descrita em documentos de ART ou RRT refere-se sempre à ÁREA DE CONSTRUÇÃO (ou área de atuação do profissional).
+   - NUNCA extraia área de terreno de documentos de ART ou RRT, pois a ART/RRT não contém a informação de área de terreno do imóvel.
+   - Portanto, os campos "area_terreno_art_projeto" e "area_terreno_art_execucao" devem ser preenchidos estritamente como "-".
+
+Retorne APENAS um objeto JSON válido com o seguinte formato estruturado (sem blocos de código markdown ou texto explicativo extra, apenas o JSON bruto):
+{
+  "confrontacao": {
+    "lote_certidao": "(lote no documento de certidão)",
+    "lote_bci": "(lote no BCI)",
+    "lote_art_projeto": "(lote na ART de projeto)",
+    "lote_art_execucao": "(lote na ART de execução)",
+    "lote_projeto": "(lote no projeto)",
+    "lote_lic_ambient": "(lote na licença ambiental)",
+    "lote_cnd": "(lote na CND)",
+    "lote_obs": "(observação de lote se houver)",
+    
+    "quadra_certidao": "(quadra na certidão)",
+    "quadra_bci": "(quadra no BCI)",
+    "quadra_art_projeto": "(quadra na ART de projeto)",
+    "quadra_art_execucao": "(quadra na ART de execução)",
+    "quadra_projeto": "(quadra no projeto)",
+    "quadra_lic_ambient": "(quadra na licença ambiental)",
+    "quadra_cnd": "(quadra na CND)",
+    "quadra_obs": "",
+    
+    "loteamento_certidao": "(loteamento na certidão)",
+    "loteamento_bci": "(loteamento no BCI)",
+    "loteamento_art_projeto": "(loteamento na ART de projeto)",
+    "loteamento_art_execucao": "(loteamento na ART de execução)",
+    "loteamento_projeto": "(loteamento no projeto)",
+    "loteamento_lic_ambient": "(loteamento na licença ambiental)",
+    "loteamento_cnd": "(loteamento na CND)",
+    "loteamento_obs": "",
+
+    "bairro_certidao": "(bairro na certidão)",
+    "bairro_bci": "(bairro no BCI)",
+    "bairro_art_projeto": "(bairro na ART de projeto)",
+    "bairro_art_execucao": "(bairro na ART de execução)",
+    "bairro_projeto": "(bairro no projeto)",
+    "bairro_lic_ambient": "(bairro na licença ambiental)",
+    "bairro_cnd": "(bairro na CND)",
+    "bairro_obs": "",
+
+    "area_terreno_certidao": "(área de terreno na certidão)",
+    "area_terreno_bci": "(área de terreno no BCI)",
+    "area_terreno_art_projeto": "(área de terreno na ART projeto)",
+    "area_terreno_art_execucao": "(área de terreno na ART execução)",
+    "area_terreno_projeto": "(área de terreno no projeto)",
+    "area_terreno_lic_ambient": "(área de terreno na licença ambiental)",
+    "area_terreno_cnd": "(área de terreno na CND)",
+    "area_terreno_obs": "",
+
+    "area_const_certidao": "(área de construção na certidão)",
+    "area_const_bci": "(área de construção no BCI)",
+    "area_const_art_projeto": "(área de construção na ART projeto)",
+    "area_const_art_execucao": "(área de construção na ART execução)",
+    "area_const_projeto": "(área de construção no projeto)",
+    "area_const_lic_ambient": "(área de construção na licença ambiental)",
+    "area_const_cnd": "(área de construção na CND)",
+    "area_const_obs": "",
+
+    "requerente_certidao": "(requerente na certidão)",
+    "requerente_bci": "(requerente no BCI)",
+    "requerente_art_projeto": "(requerente na ART projeto)",
+    "requerente_art_execucao": "(requerente na ART execução)",
+    "requerente_projeto": "(requerente no projeto)",
+    "requerente_lic_ambient": "(requerente na licença ambiental)",
+    "requerente_cnd": "(requerente na CND)",
+    "requerente_obs": "",
+
+    "endereco_certidao": "(endereço na certidão)",
+    "endereco_bci": "(endereço no BCI)",
+    "endereco_art_projeto": "(endereço na ART projeto)",
+    "endereco_art_execucao": "(endereço na ART execução)",
+    "endereco_projeto": "(endereço no projeto)",
+    "endereco_lic_ambient": "(endereço na licença ambiental)",
+    "endereco_cnd": "(endereço na CND)",
+    "endereco_obs": ""
+  },
+  "cadastral": {
+    "endereco_completo": "(endereço completo da obra)",
+    "proprietario": "(nome do requerente/proprietário)",
+    "cpf_cnpj": "(CPF ou CNPJ do requerente)",
+    "autor_projeto_profissao": "(profissão do autor do projeto, ex: Arquiteto, Engenheiro)",
+    "autor_projeto_nome": "(nome do autor do projeto)",
+    "autor_projeto_orgao": "(órgão conselho, ex: CREA, CAU)",
+    "autor_projeto_rnp": "(número de registro RNP/RN)",
+    "executor_profissao": "(profissão do responsável técnico executor)",
+    "executor_nome": "(nome do responsável técnico executor)",
+    "executor_orgao": "(órgão executor, ex: CREA, CAU)",
+    "executor_rnp": "(registro RNP/RN executor)",
+    "tipo_construcao": "(tipo da construção)",
+    "qtd_unidades": "(quantidade de unidades habitacionais, ex: 1)",
+    "area_construida": "(área construída em m²)",
+    "area_construida_extenso": "(área construída por extenso)",
+    "qtd_pavimentos": "(quantidade de pavimentos)",
+    "qtd_pavimentos_extenso": "(quantidade de pavimentos por extenso)",
+    "qtd_banheiros": "(número de banheiros)",
+    "data_documento": "(data de emissão do documento principal)"
+  },
+  "checklist_tecnico": {
+    "taxa_ocupacao_projeto": "(taxa de ocupação no projeto, ex: '0.45')",
+    "coef_aproveitamento_projeto": "(coeficiente de aproveitamento no projeto, ex: '1.2')",
+    "recuo_frontal_projeto": "(recuo frontal no projeto)",
+    "recuo_lateral_projeto": "(recuo lateral no projeto)",
+    "recuo_fundos_projeto": "(recuo de fundos no projeto)",
+    "altura_muro_projeto": "(altura do muro no projeto)",
+    "area_telhado": "(área de telhado para drenagem se houver)",
+    "area_piso_impermeavel": "(área impermeável se houver)"
+  }${
+    checklistType === 'comercial' ? `, "projeto_comercial": {
+    "num_pavimentos": "(número de pavimentos em número inteiro)",
+    "testada_total": "(testada total do lote em metros)",
+    "drenagem_distancia_riacho": "(distância a riacho/lagoa, ou 'NSAPL' se não mencionado)",
+    "drenagem_distancia_canal": "(distância a canal/talvegue, ou 'NSAPL' se não mencionado)",
+    "art_rrt_atividade_corresponde": "(escreva 'corresponde' se a atividade do projeto bate com a ART, ou 'nao_corresponde')",
+    "art_rrt_area_art": "(área descrita na ART)",
+    "art_rrt_area_rrt": "(área descrita na RRT)",
+    "art_rrt_area_projeto": "(área do projeto arquitetônico)",
+    "eiv_terreno_area": "(área do terreno para EIV)",
+    "eiv_construida_area": "(área construída para EIV)",
+    "lixo_pavimentos": "(número de pavimentos para lixo)",
+    "lixo_economias": "(número de economias para lixo)",
+    "pe_direito_sala_name": "(nome do compartimento principal, ex: 'Salão Comercial')",
+    "pe_direito_sala_area": "(área da sala comercial)",
+    "pe_direito_sala_pe": "(pé-direito da sala comercial)",
+    "pe_direito_jirau_existe": "('sim' se existir mezanino/jirau nos documentos, caso contrário 'nao')",
+    "pe_direito_jirau_area": "(área do jirau)",
+    "pe_direito_jirau_acima": "(pé-direito acima do jirau)",
+    "pe_direito_jirau_abaixo": "(pé-direito abaixo do jirau)",
+    "medidas_lote_projeto": "(medidas/dimensões do lote no projeto)",
+    "medidas_lote_certidao": "(medidas/dimensões do lote na certidão/escritura)",
+    "confrontantes_frente_projeto": "(confrontante frente no projeto)",
+    "confrontantes_fundos_projeto": "(confrontante fundos no projeto)",
+    "confrontantes_ld_projeto": "(confrontante lado direito no projeto)",
+    "confrontantes_le_projeto": "(confrontante lado esquerdo no projeto)",
+    "confrontantes_frente_certidao": "(confrontante frente na certidão/escritura)",
+    "confrontantes_fundos_certidao": "(confrontante fundos na certidão/escritura)",
+    "confrontantes_ld_certidao": "(confrontante lado direito na certidão/escritura)",
+    "confrontantes_le_certidao": "(confrontante lado esquerdo na certidão/escritura)",
+    "estac_area_total_construida": "(área total construída do estacionamento)",
+    "estac_deducao_garagem": "(área de garagem/estacionamento para dedução)",
+    "estac_deducao_tecnica": "(área técnica/depósitos para dedução)",
+    "estac_deducao_circulacao": "(área de circulação vertical para dedução)",
+    "estac_deducao_lazer": "(área de lazer para dedução)",
+    "estac_deducao_fachada_ativa": "(área de fachada ativa)",
+    "estac_vagas_projeto": "(vagas projetadas)"
+  }` : checklistType === 'residencial' ? `, "projeto_estacionamento": {
+    "estac_area_total_construida": "(área total construída do estacionamento)",
+    "estac_deducao_garagem": "(área de garagem/estacionamento para dedução)",
+    "estac_deducao_tecnica": "(área técnica/depósitos para dedução)",
+    "estac_deducao_circulacao": "(área de circulação vertical para dedução)",
+    "estac_deducao_lazer": "(área de lazer para dedução)",
+    "estac_deducao_fachada_ativa": "(área de fachada ativa)",
+    "estac_vagas_projeto": "(vagas projetadas)"
+  }` : ''
+  }
+}
+`;
+
+      const VITE_GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+      if (!VITE_GEMINI_API_KEY) {
+        throw new Error('Chave de API do Gemini (VITE_GEMINI_API_KEY) não configurada no ambiente.');
+      }
+
+      // 5. Chamar API do Gemini diretamente via Fetch HTTP (Serverless)
+      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${VITE_GEMINI_API_KEY}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          checklist_type: checklistType,
-          documents: docsToSend
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompt_final }]
+            }
+          ],
+          generationConfig: {
+            responseMimeType: "application/json"
+          }
         })
       });
 
-      if (!backendRes.ok) {
-        let errMsg = 'Falha no processamento da auditoria.';
-        try {
-          const errData = await backendRes.json();
-          errMsg = errData.error || errMsg;
-        } catch (_) {}
-        throw new Error(errMsg);
+      if (!geminiRes.ok) {
+        throw new Error(`Falha na API do Gemini: ${geminiRes.statusText} (${geminiRes.status})`);
       }
 
-      const parsedJson = await backendRes.json();
-      console.log('[Auditoria Backend] Resposta estruturada do Gemini:', parsedJson);
+      const resData = await geminiRes.json();
+      const rawText = resData?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+      
+      let parsedJson = {};
+      try {
+        parsedJson = JSON.parse(rawText.trim());
+      } catch (parseErr) {
+        console.warn('Erro ao fazer parse inicial do JSON, tentando limpar markdown blocks:', parseErr);
+        let cleanText = rawText.trim();
+        if (cleanText.startsWith("```json")) {
+          cleanText = cleanText.substring(7);
+        }
+        if (cleanText.endsWith("```")) {
+          cleanText = cleanText.substring(0, cleanText.length - 3);
+        }
+        parsedJson = JSON.parse(cleanText.trim());
+      }
 
-      // 4. Mesclar os resultados extraídos de volta no estado
+      console.log('[Auditoria Serverless] Resposta estruturada do Gemini:', parsedJson);
+
+      // 6. Mesclar os resultados extraídos de volta no estado
 
       // Mescla a confrontação extraída
       const newConf = { ...finalChecklistData.confrontacao };
@@ -2440,10 +2832,10 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                   </div>
 
                   <label className="btn btn-outline btn-sm" style={{ cursor: 'pointer', margin: 0, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    📁 Anexar Arquivos (PDF)
+                    📁 Anexar Arquivos (PDF, MD, TXT)
                     <input 
                       type="file" 
-                      accept=".pdf"
+                      accept=".pdf,.md,.txt"
                       multiple
                       onChange={e => {
                         if (e.target.files && e.target.files.length > 0) {
@@ -2624,10 +3016,10 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                             </div>
                           ) : (
                             <label className="btn btn-outline btn-sm" style={{ cursor: 'pointer', margin: 0, padding: '2px 8px', fontSize: '10px', height: '24px', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              📁 Anexar PDF
+                              📁 Anexar (PDF, MD, TXT)
                               <input 
                                 type="file"
-                                accept=".pdf"
+                                accept=".pdf,.md,.txt"
                                 onChange={e => {
                                   const file = e.target.files[0];
                                   if (file) {
@@ -2759,10 +3151,10 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                               </div>
                             ) : (
                               <label className="btn btn-outline btn-sm" style={{ cursor: 'pointer', margin: 0, padding: '2px 8px', fontSize: '10px', height: '24px', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                📁 Anexar PDF
+                                📁 Anexar (PDF, MD, TXT)
                                 <input 
                                   type="file"
-                                  accept=".pdf"
+                                  accept=".pdf,.md,.txt"
                                   onChange={e => {
                                     const file = e.target.files[0];
                                     if (file) {
@@ -2896,10 +3288,10 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                               </div>
                             ) : (
                               <label className="btn btn-outline btn-sm" style={{ cursor: 'pointer', margin: 0, padding: '2px 8px', fontSize: '10px', height: '24px', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                📁 Anexar PDF
+                                📁 Anexar (PDF, MD, TXT)
                                 <input 
                                   type="file"
-                                  accept=".pdf"
+                                  accept=".pdf,.md,.txt"
                                   onChange={e => {
                                     const file = e.target.files[0];
                                     if (file) {
@@ -2921,6 +3313,139 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
                   </div>
                 </div>
               )}
+
+              {/* 2.4 Projeto e Memorial Descritivo */}
+              <div>
+                <h4 style={{ fontSize: '13px', fontWeight: '600', color: 'var(--blue)', marginBottom: '10px', borderBottom: '1px solid var(--border)', paddingBottom: '4px' }}>
+                  2.4) PROJETO E MEMORIAL DESCRITIVO
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {[
+                    { key: 'projeto_arquitetonico', label: 'Projeto Arquitetônico' },
+                    { key: 'memorial_descritivo', label: 'Memorial Descritivo do Projeto' }
+                  ].map(doc => {
+                    const status = checklistData.documentos[doc.key]?.status || 'ausente';
+                    const isUploadedLocal = !!uploadedFiles[doc.key];
+                    const hasPersistedUrl = !!checklistData.documentos[doc.key]?.url;
+                    const fileName = uploadedFiles[doc.key]?.name || checklistData.documentos[doc.key]?.name;
+                    const fileUrl = checklistData.documentos[doc.key]?.url;
+
+                    return (
+                      <div key={doc.key} style={{ display: 'grid', gridTemplateColumns: '1fr 230px 220px', gap: '12px', alignItems: 'center', padding: '8px', background: 'var(--body-bg)', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '500', color: 'var(--text1)' }}>• {doc.label}</span>
+                        
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button 
+                            type="button"
+                            className={`btn btn-xs ${status === 'ausente' ? 'btn-danger' : 'btn-outline'}`}
+                            onClick={() => {
+                              const newDocs = { ...checklistData.documentos };
+                              newDocs[doc.key].status = 'ausente';
+                              setChecklistData({ ...checklistData, documentos: newDocs });
+                            }}
+                            style={{ padding: '2px 6px', fontSize: '9px', height: '22px', borderRadius: '4px' }}
+                          >
+                            Ausente
+                          </button>
+                          <button 
+                            type="button"
+                            className={`btn btn-xs ${status === 'nsapl' ? 'btn-outline' : 'btn-outline'}`}
+                            onClick={() => {
+                              const newDocs = { ...checklistData.documentos };
+                              newDocs[doc.key].status = 'nsapl';
+                              setChecklistData({ ...checklistData, documentos: newDocs });
+                            }}
+                            style={{ 
+                              padding: '2px 6px', 
+                              fontSize: '9px', 
+                              height: '22px', 
+                              borderRadius: '4px',
+                              background: status === 'nsapl' ? 'rgba(107, 114, 128, 0.2)' : 'transparent',
+                              color: status === 'nsapl' ? 'var(--text1)' : 'var(--text2)',
+                              borderColor: status === 'nsapl' ? 'var(--border)' : 'var(--border)'
+                            }}
+                          >
+                            NSAPL
+                          </button>
+                          <button 
+                            type="button"
+                            className={`btn btn-xs ${status === 'apresentado' ? 'btn-success' : 'btn-outline'}`}
+                            onClick={() => {
+                              const newDocs = { ...checklistData.documentos };
+                              newDocs[doc.key].status = 'apresentado';
+                              setChecklistData({ ...checklistData, documentos: newDocs });
+                            }}
+                            style={{ padding: '2px 6px', fontSize: '9px', height: '22px', borderRadius: '4px' }}
+                          >
+                            Apresentado
+                          </button>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {fileName ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: isUploadedLocal ? 'rgba(34, 197, 94, 0.08)' : 'rgba(59, 130, 246, 0.08)', padding: '2px 8px', borderRadius: '4px', border: `1px dashed ${isUploadedLocal ? 'var(--green)' : 'var(--blue)'}`, width: '100%', justifyContent: 'space-between' }}>
+                              <span 
+                                style={{ 
+                                  fontSize: '10px', 
+                                  color: isUploadedLocal ? 'var(--green)' : 'var(--blue)', 
+                                  fontWeight: '600', 
+                                  textOverflow: 'ellipsis', 
+                                  overflow: 'hidden', 
+                                  whiteSpace: 'nowrap', 
+                                  maxWidth: '120px' 
+                                }} 
+                                title={`${fileName} ${isUploadedLocal ? '(Pronto para salvar)' : '(Salvo)'}`}
+                              >
+                                📄 {fileName}
+                              </span>
+                              <div style={{ display: 'flex', gap: '4px' }}>
+                                {hasPersistedUrl && (
+                                  <a 
+                                    href={fileUrl} 
+                                    target="_blank" 
+                                    rel="noreferrer"
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', color: 'var(--blue)', padding: '2px', cursor: 'pointer' }}
+                                    title="Visualizar PDF"
+                                  >
+                                    👁️
+                                  </a>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveFile(doc.key)}
+                                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '10px', padding: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--red)' }}
+                                  title="Remover anexo"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <label className="btn btn-outline btn-sm" style={{ cursor: 'pointer', margin: 0, padding: '2px 8px', fontSize: '10px', height: '24px', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              📁 Anexar (PDF, MD, TXT)
+                              <input 
+                                type="file"
+                                accept=".pdf,.md,.txt"
+                                onChange={e => {
+                                  const file = e.target.files[0];
+                                  if (file) {
+                                    setUploadedFiles(prev => ({ ...prev, [doc.key]: file }));
+                                    const newDocs = { ...checklistData.documentos };
+                                    newDocs[doc.key].status = 'apresentado';
+                                    newDocs[doc.key].name = file.name;
+                                    setChecklistData(prev => ({ ...prev, documentos: newDocs }));
+                                  }
+                                }}
+                                style={{ display: 'none' }}
+                              />
+                            </label>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
             <div style={{ marginTop: '18px', display: 'flex', alignItems: 'center', gap: '12px' }}>
