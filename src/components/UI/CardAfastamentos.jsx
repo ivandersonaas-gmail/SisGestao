@@ -6,7 +6,7 @@ const REGRAS_ZONA = {
   intensivo: { frontalAte2: 3.0,           frontal3a4: 5.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: false },
   eixo2:     { frontalAte2: 'alinhamento', frontal3a4: 3.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: true },
   moderado:  { frontalAte2: 3.0,           frontal3a4: 5.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: false },
-  historica: { frontalAte2: 'alinhamento', frontal3a4: 5.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: true },
+  historica: { frontalAte2: 'alinhamento', frontal3a4: 3.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: true },
   transicao1:{ frontalAte2: 4.0,           frontal3a4: 5.0, frontalAFI: 5.0, latFundAte2: 0, latFundALFI: 2.0, usaAlinhamento: false },
   transicao2:{ frontalAte2: 10.0,          frontal3a4: 10.0,frontalAFI: null,latFundAte2: 3.0, latFundALFI: null, usaAlinhamento: false },
 };
@@ -56,6 +56,7 @@ export function CardAfastamentos({
   frontal2, setFrontal2,
   lateral, setLateral,
   fundos, setFundos,
+  numeroItem = 14,
 }) {
   const exig = useMemo(() => calcExigidos(zonaKey, numPavimentos), [zonaKey, numPavimentos]);
   const n = parseInt(numPavimentos) || 0;
@@ -80,15 +81,30 @@ export function CardAfastamentos({
 
     const erros = [];
 
-    // Frontal 1
-    if (typeof frontalExig === 'number') {
-      if (isNaN(pF1) || pF1 < frontalExig)
-        erros.push(`Recuo Frontal (Testada Principal): Exigido ≥ ${frontalExig.toFixed(2)} m | Projetado: ${isNaN(pF1) ? '—' : pF1.toFixed(2)} m`);
-    }
-    // Frontal 2 (esquina)
-    if (esquina === 'sim' && typeof frontalExig === 'number') {
-      if (isNaN(pF2) || pF2 < frontalExig)
-        erros.push(`Recuo Frontal (Testada Secundária): Exigido ≥ ${frontalExig.toFixed(2)} m | Projetado: ${isNaN(pF2) ? '—' : pF2.toFixed(2)} m`);
+    // Validação de Recuo Frontal (com flexibilização para lote de esquina e n > 4)
+    const isEsquinaN4 = (esquina === 'sim' && n > 4 && regra && typeof regra.frontalAFI === 'number');
+
+    if (isEsquinaN4) {
+      const AFI = regra.frontalAFI;
+      const AFR = frontalExig; // Exigido calculado pela fórmula progressiva
+
+      const okCaso1 = (!isNaN(pF1) && pF1 >= AFI) && (!isNaN(pF2) && pF2 >= AFR);
+      const okCaso2 = (!isNaN(pF1) && pF1 >= AFR) && (!isNaN(pF2) && pF2 >= AFI);
+
+      if (!okCaso1 && !okCaso2) {
+        erros.push(`Afastamentos Frontais de Esquina (Art. 146, IV, "d"): Pelo menos uma das frentes deve atender ao AFR (≥ ${AFR.toFixed(2)} m) e a outra ao AFI (≥ ${AFI.toFixed(2)} m) | Projetado: Frente Principal = ${isNaN(pF1) ? '—' : pF1.toFixed(2)} m, Frente Secundária = ${isNaN(pF2) ? '—' : pF2.toFixed(2)} m`);
+      }
+    } else {
+      // Frontal 1
+      if (typeof frontalExig === 'number') {
+        if (isNaN(pF1) || pF1 < frontalExig)
+          erros.push(`Recuo Frontal (Testada Principal): Exigido ≥ ${frontalExig.toFixed(2)} m | Projetado: ${isNaN(pF1) ? '—' : pF1.toFixed(2)} m`);
+      }
+      // Frontal 2 (esquina)
+      if (esquina === 'sim' && typeof frontalExig === 'number') {
+        if (isNaN(pF2) || pF2 < frontalExig)
+          erros.push(`Recuo Frontal (Testada Secundária): Exigido ≥ ${frontalExig.toFixed(2)} m | Projetado: ${isNaN(pF2) ? '—' : pF2.toFixed(2)} m`);
+      }
     }
     // Lateral
     if (latFundExig > 0) {
@@ -177,17 +193,68 @@ export function CardAfastamentos({
     const cor = (ok) => ok ? 'var(--green)' : 'var(--red)';
     const icone = (ok) => ok ? '✔️' : '❌';
 
-    if (typeof frontalExig === 'number') {
-      const ok = !isNaN(pF1) && pF1 >= frontalExig;
-      linhas.push({ label: 'Frontal (Testada Principal)', exig: `${frontalExig.toFixed(2)} m`, proj: isNaN(pF1) ? '—' : `${pF1.toFixed(2)} m`, ok });
-    } else if (frontalExig === 'alinhamento') {
-      linhas.push({ label: 'Frontal', exig: 'Alinhamento predominante (Art. 142)', proj: frontal1 || '—', ok: true, info: true });
-    }
+    const isEsquinaN4 = (esquina === 'sim' && n > 4 && regra && typeof regra.frontalAFI === 'number');
 
-    if (esquina === 'sim' && typeof frontalExig === 'number') {
+    if (isEsquinaN4) {
+      const AFI = regra.frontalAFI;
+      const AFR = frontalExig;
       const pF2v = parseFloat(frontal2?.replace(',', '.'));
-      const ok2 = !isNaN(pF2v) && pF2v >= frontalExig;
-      linhas.push({ label: 'Frontal (Testada Secundária)', exig: `${frontalExig.toFixed(2)} m`, proj: isNaN(pF2v) ? '—' : `${pF2v.toFixed(2)} m`, ok: ok2 });
+
+      // Validação dinâmica para determinar qual frente atende a qual regra
+      const atendeF1_AFR_F2_AFI = (!isNaN(pF1) && pF1 >= AFR) && (!isNaN(pF2v) && pF2v >= AFI);
+      const atendeF1_AFI_F2_AFR = (!isNaN(pF1) && pF1 >= AFI) && (!isNaN(pF2v) && pF2v >= AFR);
+
+      let exigF1 = AFI;
+      let exigF2 = AFR;
+      let okF1 = false;
+      let okF2 = false;
+
+      if (atendeF1_AFR_F2_AFI) {
+        exigF1 = AFR;
+        exigF2 = AFI;
+        okF1 = true;
+        okF2 = true;
+      } else if (atendeF1_AFI_F2_AFR) {
+        exigF1 = AFI;
+        exigF2 = AFR;
+        okF1 = true;
+        okF2 = true;
+      } else {
+        // Se nenhum caso for plenamente atendido, exibe a melhor correspondência lógica
+        if (!isNaN(pF1) && pF1 >= AFR) {
+          exigF1 = AFR;
+          exigF2 = AFI;
+          okF1 = true;
+          okF2 = !isNaN(pF2v) && pF2v >= AFI;
+        } else if (!isNaN(pF2v) && pF2v >= AFR) {
+          exigF1 = AFI;
+          exigF2 = AFR;
+          okF1 = !isNaN(pF1) && pF1 >= AFI;
+          okF2 = true;
+        } else {
+          // Por padrão mostra a Principal com AFI e Secundária com AFR
+          exigF1 = AFI;
+          exigF2 = AFR;
+          okF1 = !isNaN(pF1) && pF1 >= AFI;
+          okF2 = !isNaN(pF2v) && pF2v >= AFR;
+        }
+      }
+
+      linhas.push({ label: 'Recuo Frontal - Frente Principal', exig: `${exigF1.toFixed(2)} m (Frente 1: ${exigF1 === AFI ? 'AFI' : 'AFR'})`, proj: isNaN(pF1) ? '—' : `${pF1.toFixed(2)} m`, ok: okF1 });
+      linhas.push({ label: 'Recuo Frontal - Frente Secundária', exig: `${exigF2.toFixed(2)} m (Frente 2: ${exigF2 === AFI ? 'AFI' : 'AFR'})`, proj: isNaN(pF2v) ? '—' : `${pF2v.toFixed(2)} m`, ok: okF2 });
+    } else {
+      if (typeof frontalExig === 'number') {
+        const ok = !isNaN(pF1) && pF1 >= frontalExig;
+        linhas.push({ label: 'Frontal (Testada Principal)', exig: `${frontalExig.toFixed(2)} m`, proj: isNaN(pF1) ? '—' : `${pF1.toFixed(2)} m`, ok });
+      } else if (frontalExig === 'alinhamento') {
+        linhas.push({ label: 'Frontal', exig: 'Alinhamento predominante (Art. 142)', proj: frontal1 || '—', ok: true, info: true });
+      }
+
+      if (esquina === 'sim' && typeof frontalExig === 'number') {
+        const pF2v = parseFloat(frontal2?.replace(',', '.'));
+        const ok2 = !isNaN(pF2v) && pF2v >= frontalExig;
+        linhas.push({ label: 'Frontal (Testada Secundária)', exig: `${frontalExig.toFixed(2)} m`, proj: isNaN(pF2v) ? '—' : `${pF2v.toFixed(2)} m`, ok: ok2 });
+      }
     }
 
     if (latFundExig === 0) {
@@ -201,14 +268,17 @@ export function CardAfastamentos({
 
     return (
       <div style={{ marginTop: '14px', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden', fontSize: '11px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 32px', background: 'rgba(0,0,0,0.04)', padding: '6px 10px', fontWeight: '600', color: 'var(--text2)' }}>
-          <span>Parâmetro</span><span>Exigido (Lei)</span><span>Projetado</span><span></span>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1.4fr 0.8fr 32px', background: 'rgba(0,0,0,0.04)', padding: '6px 10px', fontWeight: '600', color: 'var(--text2)' }}>
+          <span style={{ paddingRight: '4px', whiteSpace: 'normal', wordBreak: 'break-word' }}>Parâmetro</span>
+          <span style={{ paddingRight: '4px', whiteSpace: 'normal', wordBreak: 'break-word' }}>Exigido (Lei)</span>
+          <span style={{ paddingRight: '4px', whiteSpace: 'normal', wordBreak: 'break-word' }}>Projetado</span>
+          <span></span>
         </div>
         {linhas.map((l, i) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 32px', padding: '6px 10px', borderTop: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.01)' }}>
-            <span style={{ color: 'var(--text2)' }}>{l.label}</span>
-            <span style={{ color: 'var(--blue)', fontWeight: '500' }}>{l.exig}</span>
-            <span style={{ fontWeight: '500' }}>{l.proj}</span>
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1.4fr 0.8fr 32px', padding: '6px 10px', borderTop: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.01)', alignItems: 'center' }}>
+            <span style={{ color: 'var(--text2)', paddingRight: '4px', whiteSpace: 'normal', wordBreak: 'break-word' }}>{l.label}</span>
+            <span style={{ color: 'var(--blue)', fontWeight: '500', paddingRight: '4px', whiteSpace: 'normal', wordBreak: 'break-word' }}>{l.exig}</span>
+            <span style={{ fontWeight: '500', paddingRight: '4px', whiteSpace: 'normal', wordBreak: 'break-word' }}>{l.proj}</span>
             <span style={{ textAlign: 'center', color: l.info ? 'var(--text3)' : cor(l.ok) }}>{l.info ? 'ℹ️' : icone(l.ok)}</span>
           </div>
         ))}
@@ -217,22 +287,22 @@ export function CardAfastamentos({
   };
 
   return (
-    <div style={{ marginBottom: '28px' }}>
+    <div style={{ padding: '16px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border)', borderRadius: '6px', marginBottom: '20px', maxWidth: '450px', width: '100%' }}>
       {/* ── Cabeçalho do card ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-        <h3 style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text1)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-          📏 5. Análise de Afastamentos{nsapl ? ' - NSAPL' : ''}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+        <strong style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text2)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          📏 {numeroItem}. Análise de Afastamentos{nsapl ? ' - NSAPL' : ''}
           {headerBadge && (
             <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: headerBadge.bg, border: `1px solid ${headerBadge.border}`, color: headerBadge.color, fontWeight: '700' }}>
               {headerBadge.label}
             </span>
           )}
-        </h3>
+        </strong>
         <button
           type="button"
           onClick={() => setNsapl(!nsapl)}
           style={{
-            fontSize: '11px', padding: '4px 12px', fontWeight: '700', borderRadius: '4px', cursor: 'pointer',
+            fontSize: '9px', padding: '2px 8px', fontWeight: '700', borderRadius: '4px', cursor: 'pointer',
             border: `1px solid ${nsapl ? '#6b7280' : 'var(--border)'}`,
             background: nsapl ? 'rgba(107,114,128,0.12)' : 'transparent',
             color: nsapl ? '#6b7280' : 'var(--text2)',
@@ -244,8 +314,7 @@ export function CardAfastamentos({
 
       {/* ── Conteúdo do card (desabilitado se NSAPL) ── */}
       <div style={{
-        padding: '16px', border: '1px solid var(--border)', borderRadius: '8px',
-        background: nsapl ? 'rgba(0,0,0,0.02)' : 'var(--card-bg)',
+        padding: '0',
         opacity: nsapl ? 0.5 : 1, pointerEvents: nsapl ? 'none' : 'auto',
         transition: 'opacity 0.2s',
       }}>
@@ -286,6 +355,77 @@ export function CardAfastamentos({
               </div>
             </div>
 
+            {/* ── Painel de Gabarito Visual Dinâmico ── */}
+            {zonaKey && numPavimentos && !exig?.bloqueio && (
+              <div style={{
+                padding: '12px',
+                background: 'rgba(59, 130, 246, 0.03)',
+                border: '1px solid rgba(59, 130, 246, 0.15)',
+                borderRadius: '6px',
+                marginBottom: '14px',
+                fontSize: '11px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                color: 'var(--text2)'
+              }}>
+                <strong style={{ color: 'var(--blue)', fontSize: '11.5px', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  🏢 Gabarito de Recuos por Pavimento:
+                </strong>
+                
+                {/* Bloco Base (n >= 1) */}
+                {n >= 1 && (
+                  <div>
+                    <strong>• 1º e 2º Pavimento:</strong> Frontal = {regra?.frontalAte2 === 'alinhamento' ? 'Alinhamento predominante' : `${regra?.frontalAte2 ? regra.frontalAte2.toFixed(2) + ' m' : '—'}`} | Laterais/Fundos = {regra?.latFundAte2 === 0 ? '0.00 m (Nulo)' : `${regra?.latFundAte2 ? regra.latFundAte2.toFixed(2) + ' m' : '—'}`}
+                  </div>
+                )}
+
+                {/* Bloco Intermediário (n >= 3) */}
+                {n >= 3 && !exig?.aviso_hotel && regra?.frontal3a4 && (
+                  <div>
+                    <strong>• 3º e 4º Pavimento:</strong> Frontal = {regra?.frontal3a4 ? `${regra.frontal3a4.toFixed(2)} m` : '—'} | Laterais/Fundos = 2.00 m
+                  </div>
+                )}
+
+                {/* Regra Especial de Transição 2 (n >= 3 e hotel) */}
+                {n >= 3 && exig?.aviso_hotel && (
+                  <div>
+                    <strong>• 3º e 4º Pavimento (Hotel/Resort):</strong> Frontal = 10.00 m | Laterais/Fundos = 10.00 m
+                  </div>
+                )}
+
+                {/* Bloco Fórmula Progressiva (n > 4) */}
+                {n > 4 && !exig?.bloqueio && regra?.frontalAFI !== null && regra?.latFundALFI !== null && (() => {
+                  const AFR = (regra?.frontalAFI || 0) + (n - 4) * 0.20;
+                  const ALFR = (regra?.latFundALFI || 0) + (n - 4) * 0.20;
+                  return (
+                    <div style={{ paddingTop: '4px', borderTop: '1px dashed var(--border)', marginTop: '4px' }}>
+                      <strong>• 5º ao {n}º Pavimento (Fórmula Progressiva):</strong><br/>
+                      Frontal (AFR) = <span style={{ color: 'var(--blue)', fontWeight: 'bold' }}>{AFR.toFixed(2)} m</span> | Laterais/Fundos (ALFR) = <span style={{ color: 'var(--blue)', fontWeight: 'bold' }}>{ALFR.toFixed(2)} m</span>
+                    </div>
+                  );
+                })()}
+
+                {/* Alerta de Lote de Esquina para n > 4 */}
+                {esquina === 'sim' && n > 4 && regra?.frontalAFI !== null && (() => {
+                  const AFR = (regra?.frontalAFI || 0) + (n - 4) * 0.20;
+                  return (
+                    <div style={{
+                      marginTop: '6px',
+                      padding: '8px',
+                      background: 'rgba(245, 158, 11, 0.06)',
+                      borderLeft: '3px solid #d97706',
+                      borderRadius: '4px',
+                      color: 'var(--text1)',
+                      lineHeight: '1.4'
+                    }}>
+                      💡 <strong>Regra de Esquina (&gt; 4 pavimentos):</strong> A Testada Principal exige o recuo progressivo (<strong>{AFR.toFixed(2)} m</strong>), mas a Testada Secundária fica isenta da fórmula progressiva, mantendo o Recuo Inicial Fixo (<strong>{regra?.frontalAFI?.toFixed(2)} m</strong>).
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
             {/* ── Toggle Alinhamento Predominante (Art.142) ── */}
             {usaAlinhamento && (
               <div style={{ marginBottom: '12px', padding: '10px', background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '6px', fontSize: '12px' }}>
@@ -309,12 +449,22 @@ export function CardAfastamentos({
 
               {/* Frontal 1 */}
               <div style={rowStyle}>
-                <span>Recuo Frontal{esquina === 'sim' ? ' — Testada Principal' : ''} (m):</span>
+                <span>
+                  {esquina === 'sim' && n > 4
+                    ? 'Recuo Frontal Projetado - Frente Principal (m):'
+                    : `Recuo Frontal${esquina === 'sim' ? ' — Testada Principal' : ''} (m):`}
+                </span>
                 <input
                   type="number" step="0.01" min="0"
                   value={frontal1}
                   onChange={e => setFrontal1(e.target.value)}
-                  placeholder={exig?.frontal === 'alinhamento' ? 'Alinhamento da via...' : `Mín. ${typeof exig?.frontal === 'number' ? exig.frontal.toFixed(2) : '—'} m`}
+                  placeholder={
+                    exig?.frontal === 'alinhamento'
+                      ? 'Alinhamento da via...'
+                      : esquina === 'sim' && n > 4 && regra && typeof regra.frontalAFI === 'number'
+                      ? `Mín. ${regra.frontalAFI.toFixed(2)} m (AFI) ou ${exig.frontal.toFixed(2)} m (AFR)`
+                      : `Mín. ${typeof exig?.frontal === 'number' ? exig.frontal.toFixed(2) : '—'} m`
+                  }
                   style={inputStyle(false)}
                 />
               </div>
@@ -322,12 +472,22 @@ export function CardAfastamentos({
               {/* Frontal 2 — só se esquina = sim */}
               {esquina === 'sim' && (
                 <div style={rowStyle}>
-                  <span>Recuo Frontal — Testada Secundária (m):</span>
+                  <span>
+                    {n > 4
+                      ? 'Recuo Frontal Projetado - Frente Secundária (m):'
+                      : 'Recuo Frontal — Testada Secundária (m):'}
+                  </span>
                   <input
                     type="number" step="0.01" min="0"
                     value={frontal2}
                     onChange={e => setFrontal2(e.target.value)}
-                    placeholder={typeof exig?.frontal === 'number' ? `Mín. ${exig.frontal.toFixed(2)} m` : ''}
+                    placeholder={
+                      n > 4 && regra && typeof regra.frontalAFI === 'number' && typeof exig?.frontal === 'number'
+                        ? `Mín. ${exig.frontal.toFixed(2)} m (AFR) ou ${regra.frontalAFI.toFixed(2)} m (AFI)`
+                        : typeof exig?.frontal === 'number'
+                        ? `Mín. ${exig.frontal.toFixed(2)} m`
+                        : ''
+                    }
                     style={inputStyle(false)}
                   />
                 </div>

@@ -6,7 +6,7 @@ export function ProcessTypes() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
-  const [cur, setCur] = useState({ id: null, name: '', active: true });
+  const [cur, setCur] = useState({ id: null, name: '', active: true, prazo_legal_dias: 60 });
 
   const loadData = async () => {
     setLoading(true);
@@ -33,15 +33,16 @@ export function ProcessTypes() {
       <div className="card">
         <div className="card-title">
           Tipos de Processo
-          <button className="btn btn-primary btn-sm" onClick={() => { setCur({ id: null, name: '', active: true }); setModalOpen(true); }}>+ Novo Tipo</button>
+          <button className="btn btn-primary btn-sm" onClick={() => { setCur({ id: null, name: '', active: true, prazo_legal_dias: 60 }); setModalOpen(true); }}>+ Novo Tipo</button>
         </div>
         {loading ? <div className="empty">Carregando...</div> : (
           <table className="rt">
-            <thead><tr><th>Nome / Descrição</th><th>Status</th></tr></thead>
+            <thead><tr><th>Nome / Descrição</th><th>Prazo Legal</th><th>Status</th></tr></thead>
             <tbody>
               {data.map(d => (
                 <tr key={d.id} className="clickable" onClick={() => { setCur(d); setModalOpen(true); }}>
                   <td data-label="Nome">{d.name}</td>
+                  <td data-label="Prazo Legal">{d.prazo_legal_dias || 60} dias úteis</td>
                   <td data-label="Status">{d.active ? <span className="badge b-green">Ativo</span> : <span className="badge b-red">Inativo</span>}</td>
                 </tr>
               ))}
@@ -57,6 +58,10 @@ export function ProcessTypes() {
           <div className="fg" style={{marginBottom: 10}}>
             <label>Descrição</label>
             <input value={cur.name} onChange={e => setCur({...cur, name: e.target.value})} />
+          </div>
+          <div className="fg" style={{marginBottom: 10}}>
+            <label>Prazo Legal (dias úteis)</label>
+            <input type="number" min="1" value={cur.prazo_legal_dias || 60} onChange={e => setCur({...cur, prazo_legal_dias: parseInt(e.target.value) || 60})} />
           </div>
           <label style={{display: 'flex', alignItems: 'center', gap: 6, marginTop: 15, cursor: 'pointer', fontSize: 13}}>
             <input type="checkbox" checked={cur.active} onChange={e => setCur({...cur, active: e.target.checked})} style={{width:'auto'}} /> Ativo

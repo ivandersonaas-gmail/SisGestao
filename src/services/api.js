@@ -55,9 +55,20 @@ export const api = {
       const s = filters.search
       q = q.or(`protocol.ilike."%${s}%",requester.ilike."%${s}%",analyst_name.ilike."%${s}%"`)
     }
-    const {data,error} = await q.order('updated_at', {ascending:false})
-    if(error) throw error
-    return data||[]
+    q = q.order('updated_at', {ascending:false})
+
+    let allData = [];
+    let from = 0;
+    const limit = 1000;
+    while (true) {
+      const { data, error } = await q.range(from, from + limit - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allData = allData.concat(data);
+      if (data.length < limit) break;
+      from += limit;
+    }
+    return allData;
   },
 
   async getProcess(id){
@@ -158,6 +169,13 @@ export const api = {
     const {error: e2} = await supabase.from('processes').update({ current_status: newStatus }).eq('id', procId)
     if(e2) throw e2
     await this.log('MOVIMENTO', `Processo`, `Correção de status para ${s?.label||newStatus}`, user)
+    return data
+  },
+
+  async updateMovementDate(movId, newDateISO, user, processProtocol, movementLabel){
+    const {data, error} = await supabase.from('movements').update({ created_at: newDateISO }).eq('id', movId).select().single()
+    if(error) throw error
+    await this.log('ALTERACAO_DATA', `Processo`, `Ajuste de data do histórico (${movementLabel}) no proc. ${processProtocol} para ${new Date(newDateISO).toLocaleString('pt-BR')}`, user)
     return data
   },
 
@@ -329,9 +347,9 @@ export const api = {
     const payload = {
       user_id: user.id,
       user_name: user.name,
-      type,
-      category,
-      action
+      action: type,
+      target: category,
+      details: action
     };
     await supabase.from('audit_log').insert(payload).then(()=>{})
   },
@@ -412,5 +430,90 @@ export const api = {
       throw error;
     }
     return data;
+  },
+
+  async getFeriados() {
+    try {
+      const { data, error } = await supabase
+        .from('feriados')
+        .select('*')
+        .order('data', { ascending: true });
+      if (error) {
+        if (error.code === '42P01') return [];
+        throw error;
+      }
+      return data || [];
+    } catch (e) {
+      console.warn("Erro ao buscar feriados (tabela inexistente):", e);
+      return [];
+    }
+  },
+
+  async saveFeriado(f) {
+    if (f.id) {
+      const { data, error } = await supabase
+        .from('feriados')
+        .update(f)
+        .eq('id', f.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    } else {
+      const { id, ...payload } = f;
+      const { data, error } = await supabase
+        .from('feriados')
+        .insert(payload)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    }
+  },
+
+  async deleteFeriado(id) {
+    const { error } = await supabase
+      .from('feriados')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+
+  async getProcessesForAnalytics() {
+    let allData = [];
+    let from = 0;
+    const limit = 1000;
+    while (true) {
+      const { data, error } = await supabase
+        .from('processes_view')
+        .select('id, protocol, type, created_at, updated_at, current_status, requester, assigned_to, analyst_name')
+        .range(from, from + limit - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allData = allData.concat(data);
+      if (data.length < limit) break;
+      from += limit;
+    }
+    return allData;
+  },
+
+  async getAllMovementsForAnalytics() {
+    let allData = [];
+    let from = 0;
+    const limit = 1000;
+    while (true) {
+      const { data, error } = await supabase
+        .from('movements')
+        .select('id, process_id, status, created_at, created_by_name')
+        .range(from, from + limit - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allData = allData.concat(data);
+      if (data.length < limit) break;
+      from += limit;
+    }
+    return allData;
   }
 };
+

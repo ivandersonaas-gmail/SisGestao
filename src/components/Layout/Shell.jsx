@@ -106,6 +106,8 @@ export function Shell({ children, title, actions, armLen = 0 }) {
               <NavItem icon={Package} label="Armário do Setor" to="/armario" badge={armLen > 0 ? armLen : null} />
               <NavItem icon={Search} label="Consultar Processo" to="/consulta" />
               <NavItem icon={BarChart2} label="Produtividade" to="/productivity" />
+              <NavItem icon={BarChart2} label="Desempenho e Prazos" to="/analytics" />
+              <NavItem icon={BarChart2} label="Relatórios Avançados" to="/reports" />
             </>
           )}
 
@@ -119,12 +121,14 @@ export function Shell({ children, title, actions, armLen = 0 }) {
               <NavItem icon={Package} label="Armário do Setor" to="/armario" badge={armLen > 0 ? armLen : null} />
               <NavItem icon={Search} label="Consultar Processo" to="/consulta" />
               <NavItem icon={BarChart2} label="Produtividade" to="/productivity" />
+              <NavItem icon={BarChart2} label="Desempenho e Prazos" to="/analytics" />
               
               <div className="nav-section">Administração</div>
               <NavItem icon={Users} label="Usuários" to="/admin/users" />
               <NavItem icon={List} label="Tipos de Processo" to="/admin/proc-types" />
               <NavItem icon={ShieldCheck} label="Restrições" to="/admin/restricoes" />
               <NavItem icon={Users} label="Gestão de Fiscais" to="/admin/fiscais" />
+              <NavItem icon={ShieldCheck} label="Feriados Municipais" to="/admin/feriados" />
               <NavItem icon={BarChart2} label="Relatório Analista" to="/reports" />
               <NavItem icon={BarChart2} label="Relatório Protocolo" to="/protocol-reports" />
               <NavItem icon={ShieldCheck} label="Auditoria" to="/admin/audit" />

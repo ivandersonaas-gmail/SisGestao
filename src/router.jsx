@@ -17,10 +17,12 @@ import { Fiscais } from './pages/Admin/Fiscais';
 import { ProcessTypes } from './pages/Admin/ProcessTypes';
 import { Audit } from './pages/Admin/Audit';
 import { Restricoes } from './pages/Admin/Restricoes';
+import { Feriados } from './pages/Admin/Feriados';
 
 import { Productivity } from './pages/Reports/Productivity';
 import { AdvancedReports } from './pages/Reports/AdvancedReports';
 import { ProtocolReports } from './pages/Reports/ProtocolReports';
+import { PerformanceAnalytics } from './pages/Reports/PerformanceAnalytics';
 
 // ... (já temos Admin components importados)
 
@@ -55,12 +57,14 @@ export function AppRoutes() {
       <Route path="/productivity" element={<Productivity />} />
       <Route path="/reports" element={<AdvancedReports />} />
       <Route path="/protocol-reports" element={<ProtocolReports />} />
+      <Route path="/analytics" element={<PerformanceAnalytics />} />
       
       {/* Admin */}
       <Route path="/admin/users" element={<Users />} />
       <Route path="/admin/fiscais" element={<Fiscais />} />
       <Route path="/admin/proc-types" element={<ProcessTypes />} />
       <Route path="/admin/restricoes" element={<Restricoes />} />
+      <Route path="/admin/feriados" element={<Feriados />} />
       <Route path="/admin/audit" element={<Audit />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
