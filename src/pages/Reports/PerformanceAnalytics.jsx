@@ -41,6 +41,8 @@ function calcularDiasUteis(inicioStr, fimStr, feriadosSet) {
 export function PerformanceAnalytics() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('produtividade');
+  const [paginaGargalo, setPaginaGargalo] = useState(1);
   const [rawProcesses, setRawProcesses] = useState([]);
   const [movements, setMovements] = useState([]);
   const [processTypes, setProcessTypes] = useState([]);
@@ -91,6 +93,11 @@ export function PerformanceAnalytics() {
     }
     fetchData();
   }, []);
+
+  // Reset de página ao alterar filtros
+  useEffect(() => {
+    setPaginaGargalo(1);
+  }, [filtroPeriodoInicio, filtroPeriodoFim, filtroTipoProc, filtroStatus, filtroAnalista, filtroAno, filtroMes, filtroTrimestre]);
 
   // Set de feriados formatado em YYYY-MM-DD para busca veloz
   const feriadosSet = new Set(feriados.map(f => f.data));
@@ -167,6 +174,46 @@ export function PerformanceAnalytics() {
 
     const concluidoNoPrazo = tempoTotal <= prazoLegal;
 
+    // --- NOVA LÓGICA DE GARGALOS E PARECER ---
+    const temposStatus = {};
+    let statusAtual = 'CADASTRADO';
+    let dataUltimoStatus = new Date(proc.created_at);
+
+    procMovs.forEach(mov => {
+      const diasNoStatus = calcularDiasUteis(dataUltimoStatus.toISOString(), mov.created_at, feriadosSet);
+      if (!temposStatus[statusAtual]) temposStatus[statusAtual] = { totalDias: 0, maxPeriodoContinuo: 0, parecer: '' };
+      
+      temposStatus[statusAtual].totalDias += diasNoStatus;
+      
+      // Salva o parecer SOMENTE se este período contínuo for o maior já registrado para essa fase
+      if (diasNoStatus >= temposStatus[statusAtual].maxPeriodoContinuo) {
+        temposStatus[statusAtual].maxPeriodoContinuo = diasNoStatus;
+        if (mov.notes && mov.notes.trim().length > 5) {
+           temposStatus[statusAtual].parecer = mov.notes;
+        }
+      }
+
+      statusAtual = mov.status;
+      dataUltimoStatus = new Date(mov.created_at);
+    });
+
+    const fimParaAtual = estaConcluido ? (dataConclusao ? new Date(dataConclusao) : new Date()) : new Date();
+    const diasFinais = calcularDiasUteis(dataUltimoStatus.toISOString(), fimParaAtual.toISOString(), feriadosSet);
+    if (!temposStatus[statusAtual]) temposStatus[statusAtual] = { totalDias: 0, maxPeriodoContinuo: 0, parecer: '' };
+    temposStatus[statusAtual].totalDias += diasFinais;
+
+    let etapaGargalo = '';
+    let maxDiasGargalo = -1;
+    let motivoGargalo = '';
+
+    Object.keys(temposStatus).forEach(k => {
+       if (temposStatus[k].totalDias > maxDiasGargalo) {
+         maxDiasGargalo = temposStatus[k].totalDias;
+         etapaGargalo = k;
+         motivoGargalo = temposStatus[k].parecer;
+       }
+    });
+
     return {
       ...proc,
       prazoLegal,
@@ -182,7 +229,10 @@ export function PerformanceAnalytics() {
       tempoTotal, // Dias desde a última movimentação relevante
       tempoDesdeCadastro, // Dias desde o cadastro inicial
       tempoEtapas,
-      concluidoNoPrazo
+      concluidoNoPrazo,
+      etapaGargalo,
+      maxDiasGargalo,
+      motivoGargalo
     };
   });
 
@@ -611,6 +661,21 @@ export function PerformanceAnalytics() {
         </div>
       </div>
 
+      <div className="tabs no-print" style={{display: 'flex', gap: '10px', marginBottom: '16px'}}>
+        <button 
+          className={`btn btn-sm ${activeTab === 'produtividade' ? 'btn-primary' : 'btn-outline'}`}
+          onClick={() => setActiveTab('produtividade')}
+        >
+          Visão Geral de Produtividade
+        </button>
+        <button 
+          className={`btn btn-sm ${activeTab === 'gargalos' ? 'btn-primary' : 'btn-outline'}`}
+          onClick={() => setActiveTab('gargalos')}
+        >
+          Análise de Gargalos e Ciclo de Vida
+        </button>
+      </div>
+
       {loading ? (
         <div className="empty">Calculando indicadores e renderizando painéis gerenciais...</div>
       ) : (
@@ -618,12 +683,14 @@ export function PerformanceAnalytics() {
           
           {/* Título de Impressão */}
           <div className="print-only" style={{textAlign: 'center', marginBottom: '20px', display: 'none'}}>
-            <h2 style={{margin: 0}}>SisGestão — Relatório de Produtividade, Prazos e Indicadores de Processos</h2>
+            <h2 style={{margin: 0}}>SisGestão — Relatório de {activeTab === 'produtividade' ? 'Produtividade' : 'Gargalos'}</h2>
             <p style={{color: '#555', margin: '4px 0'}}>
               Emitido em: {new Date().toLocaleDateString('pt-BR')} | Base: {filteredData.length} processos analisados
             </p>
             <hr style={{border: 0, borderBottom: '1px solid #ccc', margin: '15px 0'}} />
           </div>
+
+          <div style={{ display: activeTab === 'produtividade' ? 'block' : 'none' }}>
 
           {/* 2. DASHBOARD EXECUTIVO - CARDS */}
           <div className="kpi-grid" style={{marginBottom: '16px'}}>
@@ -988,6 +1055,134 @@ export function PerformanceAnalytics() {
               </ul>
             </div>
           </div>
+          </div>
+
+          <div style={{ display: activeTab === 'gargalos' ? 'block' : 'none' }}>
+            
+            {(() => {
+              const itensPorPagina = 50;
+              const gargalosOrdenados = [...filteredData].sort((a, b) => new Date(a.dataProtocolo) - new Date(b.dataProtocolo));
+              const totalPaginas = Math.ceil(gargalosOrdenados.length / itensPorPagina) || 1;
+              const indexInicio = (paginaGargalo - 1) * itensPorPagina;
+              const indexFim = indexInicio + itensPorPagina;
+              const gargalosPaginados = gargalosOrdenados.slice(indexInicio, indexFim);
+
+              const maxDiasMedio = gargalosOrdenados.length > 0 
+                ? Math.round(gargalosOrdenados.reduce((acc, p) => acc + (p.maxDiasGargalo || 0), 0) / gargalosOrdenados.length)
+                : 0;
+
+              return (
+                <>
+                  <div className="kpi-grid" style={{marginBottom: '16px'}}>
+                    <div className="kpi" style={{border: '1px solid #fcd34d', background: '#fffbeb'}}>
+                      <div className="kpi-label" style={{color: '#92400e'}}>Total Listado (Filtro Atual)</div>
+                      <div className="kpi-value" style={{color: '#b45309'}}>{gargalosOrdenados.length}</div>
+                      <div className="kpi-sub">Processos no período</div>
+                    </div>
+                    <div className="kpi" style={{border: '1px solid #fca5a5', background: '#fef2f2'}}>
+                      <div className="kpi-label" style={{color: '#991b1b'}}>Tempo Médio no Gargalo</div>
+                      <div className="kpi-value" style={{color: '#ef4444'}}>{maxDiasMedio} dias</div>
+                      <div className="kpi-sub">Média geral da etapa mais longa</div>
+                    </div>
+                  </div>
+
+                  <div className="card" style={{marginBottom: '16px'}}>
+                    <div className="card-title">Histórico de Ciclo de Vida e Análise Qualitativa (Ordenado do Mais Antigo ao Mais Recente)</div>
+                    <p style={{fontSize: '13px', color: '#555', marginBottom: '16px'}}>
+                      Esta visão lista <strong>todos</strong> os processos dentro dos filtros selecionados, mostrando em qual etapa cada um passou mais tempo e trazendo as justificativas dos analistas caso existam.
+                    </p>
+
+                    <table className="rt" style={{width: '100%', borderCollapse: 'collapse'}}>
+                      <thead>
+                        <tr style={{background: '#fafafa', borderBottom: '1px solid var(--border)'}}>
+                          <th style={{padding: '12px 10px', textAlign: 'left'}}>Protocolo</th>
+                          <th style={{padding: '12px 10px', textAlign: 'center'}}>Ciclo de Vida (Dias)</th>
+                          <th style={{padding: '12px 10px', textAlign: 'left'}}>Fase Atual/Final</th>
+                          <th style={{padding: '12px 10px', textAlign: 'left'}}>Maior Retenção (Gargalo)</th>
+                          <th style={{padding: '12px 10px', textAlign: 'center'}}>Dias Travado</th>
+                          <th style={{padding: '12px 10px', textAlign: 'left'}}>Motivo / Parecer Técnico</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {gargalosPaginados.map(p => (
+                          <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
+                            <td style={{padding: '10px'}}>
+                              <div style={{fontWeight: 'bold', fontSize: '14px', color: '#0f172a'}} className="mono">
+                                {p.protocol}
+                              </div>
+                              <div style={{fontSize: '13px', color: '#334155', marginTop: '2px', fontWeight: 500}}>
+                                {p.requester || 'Requerente não informado'}
+                              </div>
+                              <div style={{fontSize: '11px', color: '#94a3b8', marginTop: '2px'}}>
+                                {p.type}
+                              </div>
+                            </td>
+                            <td style={{padding: '10px', textAlign: 'center', fontWeight: 'bold', color: 'var(--blue)'}}>
+                              {p.tempoTotal} dias
+                            </td>
+                            <td style={{padding: '10px'}}>
+                              <span className={`badge ${p.estaConcluido ? 'b-green' : 'b-gray'}`}>
+                                {p.estaConcluido ? 'CONCLUÍDO' : (p.current_status || 'CADASTRADO').replace(/_/g, ' ')}
+                              </span>
+                            </td>
+                            <td style={{padding: '10px'}}>
+                              <span className="badge b-amber">{p.etapaGargalo || '-'}</span>
+                            </td>
+                            <td style={{padding: '10px', textAlign: 'center', fontWeight: 'bold', color: 'var(--red)'}}>
+                              {p.maxDiasGargalo > 0 ? `${p.maxDiasGargalo} dias` : '-'}
+                            </td>
+                            <td style={{padding: '10px', fontSize: '12px', color: '#334155'}}>
+                              {p.motivoGargalo ? (
+                                <div style={{background: '#f8fafc', padding: '8px', borderRadius: '4px', borderLeft: '3px solid #3b82f6'}}>
+                                  "<em>{p.motivoGargalo}</em>"
+                                </div>
+                              ) : (
+                                <span style={{color: '#94a3b8', fontStyle: 'italic'}}>Nenhum parecer associado.</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                        {gargalosPaginados.length === 0 && (
+                          <tr>
+                            <td colSpan="6" className="empty" style={{padding: '20px'}}>Nenhum processo listado nesta página.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+
+                    {/* Paginação */}
+                    {totalPaginas > 1 && (
+                      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #eee'}}>
+                        <span style={{fontSize: '13px', color: '#64748b'}}>
+                          Exibindo {indexInicio + 1} a {Math.min(indexFim, gargalosOrdenados.length)} de {gargalosOrdenados.length} registros
+                        </span>
+                        <div style={{display: 'flex', gap: '8px'}}>
+                          <button 
+                            className="btn btn-sm btn-outline" 
+                            disabled={paginaGargalo === 1}
+                            onClick={() => setPaginaGargalo(p => Math.max(1, p - 1))}
+                          >
+                            Anterior
+                          </button>
+                          <span style={{fontSize: '14px', alignSelf: 'center', margin: '0 8px'}}>
+                            Página {paginaGargalo} de {totalPaginas}
+                          </span>
+                          <button 
+                            className="btn btn-sm btn-outline" 
+                            disabled={paginaGargalo === totalPaginas}
+                            onClick={() => setPaginaGargalo(p => Math.min(totalPaginas, p + 1))}
+                          >
+                            Próxima
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+
 
         </div>
       )}
