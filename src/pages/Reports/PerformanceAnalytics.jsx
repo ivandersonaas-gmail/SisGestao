@@ -1,47 +1,58 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { Badge } from '../../components/UI/Badge';
 import Chart from 'chart.js/auto';
+import { Pin } from 'lucide-react';
+import { avcol } from '../../config/constants';
 
 // Função utilitária para calcular dias úteis descontando fins de semana e feriados cadastrados
 function calcularDiasUteis(inicioStr, fimStr, feriadosSet) {
   if (!inicioStr || !fimStr) return 0;
-  const sDate = new Date(inicioStr);
-  const eDate = new Date(fimStr);
-  if (isNaN(sDate.getTime()) || isNaN(eDate.getTime())) return 0;
 
-  // Normalizar para o início do dia
-  const s = new Date(sDate.getFullYear(), sDate.getMonth(), sDate.getDate());
-  const e = new Date(eDate.getFullYear(), eDate.getMonth(), eDate.getDate());
+  try {
+    const sDate = new Date(inicioStr);
+    const eDate = new Date(fimStr);
+    if (isNaN(sDate.getTime()) || isNaN(eDate.getTime())) return 0;
 
-  if (s > e) return 0;
+    // Normalizar para o início do dia
+    const s = new Date(sDate.getFullYear(), sDate.getMonth(), sDate.getDate());
+    const e = new Date(eDate.getFullYear(), eDate.getMonth(), eDate.getDate());
 
-  let diasUteis = 0;
-  let atual = new Date(s);
+    if (s > e) return 0;
 
-  while (atual <= e) {
-    const diaSemana = atual.getDay();
-    const fano = atual.getFullYear();
-    const fmes = String(atual.getMonth() + 1).padStart(2, '0');
-    const fdia = String(atual.getDate()).padStart(2, '0');
-    const chaveData = `${fano}-${fmes}-${fdia}`;
+    let diasUteis = 0;
+    let atual = new Date(s);
 
-    const ehFimDeSemana = (diaSemana === 0 || diaSemana === 6); // 0 = Domingo, 6 = Sábado
-    const ehFeriado = feriadosSet.has(chaveData);
+    while (atual <= e) {
+      const diaSemana = atual.getDay();
+      const fano = atual.getFullYear();
+      const fmes = String(atual.getMonth() + 1).padStart(2, '0');
+      const fdia = String(atual.getDate()).padStart(2, '0');
+      const chaveData = `${fano}-${fmes}-${fdia}`;
 
-    if (!ehFimDeSemana && !ehFeriado) {
-      diasUteis++;
+      const ehFimDeSemana = (diaSemana === 0 || diaSemana === 6); // 0 = Domingo, 6 = Sábado
+      const ehFeriado = feriadosSet.has(chaveData);
+
+      if (!ehFimDeSemana && !ehFeriado) {
+        diasUteis++;
+      }
+      atual.setDate(atual.getDate() + 1);
     }
-    atual.setDate(atual.getDate() + 1);
+    
+    return diasUteis;
+  } catch (e) {
+    return 0;
   }
-  return diasUteis;
 }
 
 export function PerformanceAnalytics() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('produtividade');
+  const [activeTab, setActiveTab] = useState(user?.role === 'analyst' ? 'gargalos' : 'produtividade');
+  const [pinnedProcesses, setPinnedProcesses] = useState(new Set());
+  const [allPinnedProcesses, setAllPinnedProcesses] = useState([]);
+  const [showOnlyPinned, setShowOnlyPinned] = useState(false);
   const [paginaGargalo, setPaginaGargalo] = useState(1);
   const [rawProcesses, setRawProcesses] = useState([]);
   const [movements, setMovements] = useState([]);
@@ -74,16 +85,21 @@ export function PerformanceAnalytics() {
     async function fetchData() {
       setLoading(true);
       try {
-        const [procsRes, movsRes, typesRes, feriadosRes] = await Promise.all([
+        const [procsRes, movsRes, typesRes, feriadosRes, allPinnedRes] = await Promise.all([
           api.getProcessesForAnalytics(),
           api.getAllMovementsForAnalytics(),
           api.getAllProcessTypes(),
-          api.getFeriados()
+          api.getFeriados(),
+          api.getAllPinnedProcesses()
         ]);
         setRawProcesses(procsRes);
         setMovements(movsRes);
         setProcessTypes(typesRes);
         setFeriados(feriadosRes);
+        setAllPinnedProcesses(allPinnedRes);
+        
+        const myPins = allPinnedRes.filter(p => p.user_id === user.id).map(p => p.process_id);
+        setPinnedProcesses(new Set(myPins));
       } catch (e) {
         console.error("Erro ao buscar dados de BI:", e);
         alert("Erro ao buscar dados analíticos: " + e.message);
@@ -102,12 +118,45 @@ export function PerformanceAnalytics() {
   // Set de feriados formatado em YYYY-MM-DD para busca veloz
   const feriadosSet = new Set(feriados.map(f => f.data));
 
+  // Alternar pin (Processos em Foco)
+  const handleTogglePin = async (processId) => {
+    const isPinned = pinnedProcesses.has(processId);
+    setPinnedProcesses(prev => {
+      const newSet = new Set(prev);
+      if (isPinned) newSet.delete(processId);
+      else newSet.add(processId);
+      return newSet;
+    });
+
+    try {
+      await api.togglePinProcess(user.id, processId, isPinned);
+    } catch (error) {
+      setPinnedProcesses(prev => {
+        const newSet = new Set(prev);
+        if (isPinned) newSet.add(processId);
+        else newSet.delete(processId);
+        return newSet;
+      });
+      alert("Não foi possível fixar/desfixar o processo no banco.");
+    }
+  };
+
   // Processar dados (cálculo de prazos e etapas por processo)
-  const processedData = rawProcesses.map(proc => {
-    // Pegar movimentos do processo específico
-    const procMovs = movements
-      .filter(m => m.process_id === proc.id)
-      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const processedData = useMemo(() => {
+    // Otimização: Criar HashMap de movimentos para O(1)
+    const movimentosPorProcesso = {};
+    movements.forEach(m => {
+      if (!movimentosPorProcesso[m.process_id]) movimentosPorProcesso[m.process_id] = [];
+      movimentosPorProcesso[m.process_id].push(m);
+    });
+
+    Object.keys(movimentosPorProcesso).forEach(pid => {
+      movimentosPorProcesso[pid].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    });
+
+    return rawProcesses.map(proc => {
+    // Pegar movimentos do processo específico via HashMap
+    const procMovs = movimentosPorProcesso[proc.id] || [];
 
     // Achar data de distribuição: primeiro movimento com status RECEBIDO_SETOR ou atribuído
     const movDistribuicao = procMovs.find(m => ['RECEBIDO_SETOR', 'EM_ANALISE'].includes(m.status));
@@ -235,41 +284,52 @@ export function PerformanceAnalytics() {
       motivoGargalo
     };
   });
+  }, [rawProcesses, movements, processTypes, feriados]);
 
   // Aplicar filtros
-  const filteredData = processedData.filter(proc => {
-    // Filtro por Período de Protocolo
-    if (filtroPeriodoInicio && new Date(proc.dataProtocolo) < new Date(filtroPeriodoInicio + 'T00:00:00')) return false;
-    if (filtroPeriodoFim && new Date(proc.dataProtocolo) > new Date(filtroPeriodoFim + 'T23:59:59')) return false;
+  const filteredData = useMemo(() => {
+    return processedData.filter(proc => {
+      // Filtro Trabalhando Agora (Favoritados)
+      if (showOnlyPinned && !pinnedProcesses.has(proc.id)) return false;
 
-    // Filtro por Tipo de Processo
-    if (filtroTipoProc && proc.type !== filtroTipoProc) return false;
+      // Filtro por Período de Protocolo
+      if (filtroPeriodoInicio && new Date(proc.dataProtocolo) < new Date(filtroPeriodoInicio + 'T00:00:00')) return false;
+      if (filtroPeriodoFim && new Date(proc.dataProtocolo) > new Date(filtroPeriodoFim + 'T23:59:59')) return false;
 
-    // Filtro por Status
-    if (filtroStatus === 'concluidos' && !proc.estaConcluido) return false;
-    if (filtroStatus === 'andamento' && proc.estaConcluido) return false;
+      // Filtro por Tipo de Processo
+      if (filtroTipoProc && proc.type !== filtroTipoProc) return false;
 
-    // Filtro por Analista Responsável
-    if (filtroAnalista && proc.analyst_name !== filtroAnalista) return false;
+      // Filtro por Status
+      if (filtroStatus === 'concluidos' && !proc.estaConcluido) return false;
+      if (filtroStatus === 'andamento' && proc.estaConcluido) return false;
 
-    // Filtros de tempo agrupados
-    const dProt = new Date(proc.dataProtocolo);
-    const anoProt = dProt.getFullYear();
-    const mesProt = dProt.getMonth() + 1; // 1-indexed
+      // Filtro por Analista Responsável
+      if (user?.role === 'analyst') {
+        if (proc.assigned_to !== user.id && proc.analyst_name !== user.name) return false;
+      } else {
+        if (filtroAnalista && proc.analyst_name !== filtroAnalista) return false;
+      }
 
-    if (filtroAno && anoProt !== parseInt(filtroAno)) return false;
-    if (filtroMes && mesProt !== parseInt(filtroMes)) return false;
+      // Filtros de tempo agrupados
+      const dProt = new Date(proc.dataProtocolo);
+      const anoProt = dProt.getFullYear();
+      const mesProt = dProt.getMonth() + 1; // 1-indexed
 
-    if (filtroTrimestre) {
-      const trim = Math.ceil(mesProt / 3);
-      if (trim !== parseInt(filtroTrimestre)) return false;
-    }
+      if (filtroAno && anoProt !== parseInt(filtroAno)) return false;
+      if (filtroMes && mesProt !== parseInt(filtroMes)) return false;
 
-    return true;
-  });
+      if (filtroTrimestre) {
+        const trim = Math.ceil(mesProt / 3);
+        if (trim !== parseInt(filtroTrimestre)) return false;
+      }
+
+      return true;
+    });
+  }, [processedData, showOnlyPinned, pinnedProcesses, filtroPeriodoInicio, filtroPeriodoFim, filtroTipoProc, filtroStatus, user, filtroAnalista, filtroAno, filtroMes, filtroTrimestre]);
 
   // Cálculos Gerais dos Indicadores (Base Filtrada)
-  const concluidos = filteredData.filter(p => p.estaConcluido);
+  const stats = useMemo(() => {
+    const concluidos = filteredData.filter(p => p.estaConcluido);
   const emAndamento = filteredData.filter(p => !p.estaConcluido);
 
   const totalProcessos = filteredData.length;
@@ -403,15 +463,30 @@ export function PerformanceAnalytics() {
 
   const comparativo = getComparativoTemporal();
 
-  // Alertas Automáticos & Gargalos
-  const alertas = {
-    acimaDoPrazoLegal: filteredData.filter(p => p.estaConcluido && !p.concluidoNoPrazo),
-    emAtrasoAndamento: filteredData.filter(p => !p.estaConcluido && p.tempoTotal > p.prazoLegal),
-    gargaloEtapa: tiposEstatisticas.reduce((max, curr) => {
-      if (!max || curr.prazoMedio > max.prazoMedio) return curr;
-      return max;
-    }, null)
-  };
+    // Alertas Automáticos & Gargalos
+    const alertas = {
+      acimaDoPrazoLegal: filteredData.filter(p => p.estaConcluido && !p.concluidoNoPrazo),
+      emAtrasoAndamento: filteredData.filter(p => !p.estaConcluido && p.tempoTotal > p.prazoLegal),
+      gargaloEtapa: tiposEstatisticas.reduce((max, curr) => {
+        if (!max || curr.prazoMedio > max.prazoMedio) return curr;
+        return max;
+      }, null)
+    };
+
+    return {
+      concluidos, emAndamento, totalProcessos, qtdConcluidos, qtdEmAndamento,
+      totalDiasConcluidos, prazoMedioGeral, dentroDoPrazoCount, foraDoPrazoCount,
+      pctNoPrazo, tiposEstatisticas, rankings, analistasDesempenho, rankingAnalistas,
+      comparativo, alertas, analistasList
+    };
+  }, [filteredData, processedData]);
+
+  const {
+    concluidos, emAndamento, totalProcessos, qtdConcluidos, qtdEmAndamento,
+    totalDiasConcluidos, prazoMedioGeral, dentroDoPrazoCount, foraDoPrazoCount,
+    pctNoPrazo, tiposEstatisticas, rankings, analistasDesempenho, rankingAnalistas,
+    comparativo, alertas, analistasList
+  } = stats;
 
   // Renderização de Gráficos
   useEffect(() => {
@@ -637,15 +712,17 @@ export function PerformanceAnalytics() {
               <option value="andamento">Apenas Em Andamento</option>
             </select>
           </div>
-          <div className="fg">
-            <label>Analista Responsável</label>
-            <select value={filtroAnalista} onChange={e => setFiltroAnalista(e.target.value)}>
-              <option value="">Todos os analistas</option>
-              {analistasList.map(a => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
-          </div>
+          {user?.role !== 'analyst' && (
+            <div className="fg">
+              <label>Analista Responsável</label>
+              <select value={filtroAnalista} onChange={e => setFiltroAnalista(e.target.value)}>
+                <option value="">Todos os analistas</option>
+                {analistasList.map(a => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="fg">
             <label>Período Inicial</label>
             <input type="date" value={filtroPeriodoInicio} onChange={e => setFiltroPeriodoInicio(e.target.value)} />
@@ -655,19 +732,29 @@ export function PerformanceAnalytics() {
             <input type="date" value={filtroPeriodoFim} onChange={e => setFiltroPeriodoFim(e.target.value)} />
           </div>
         </div>
-        <div style={{display: 'flex', gap: '10px', marginTop: '15px', justifyContent: 'flex-end'}}>
+        <div style={{display: 'flex', gap: '10px', marginTop: '15px', justifyContent: 'flex-end', flexWrap: 'wrap'}}>
+          <button 
+            className={`btn btn-sm ${showOnlyPinned ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => setShowOnlyPinned(!showOnlyPinned)}
+            style={{display: 'flex', alignItems: 'center'}}
+          >
+            <Pin size={16} style={{marginRight: '6px'}} fill={showOnlyPinned ? 'currentColor' : 'none'} />
+            Trabalhando Agora {showOnlyPinned ? '(Ativo)' : ''}
+          </button>
           <button className="btn btn-outline btn-sm" onClick={limparFiltros}>Limpar Filtros</button>
           <button className="btn btn-success btn-sm" onClick={() => window.print()}>🖨️ Imprimir PDF / Relatório</button>
         </div>
       </div>
 
       <div className="tabs no-print" style={{display: 'flex', gap: '10px', marginBottom: '16px'}}>
-        <button 
-          className={`btn btn-sm ${activeTab === 'produtividade' ? 'btn-primary' : 'btn-outline'}`}
-          onClick={() => setActiveTab('produtividade')}
-        >
-          Visão Geral de Produtividade
-        </button>
+        {user?.role !== 'analyst' && (
+          <button 
+            className={`btn btn-sm ${activeTab === 'produtividade' ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => setActiveTab('produtividade')}
+          >
+            Visão Geral de Produtividade
+          </button>
+        )}
         <button 
           className={`btn btn-sm ${activeTab === 'gargalos' ? 'btn-primary' : 'btn-outline'}`}
           onClick={() => setActiveTab('gargalos')}
@@ -1004,7 +1091,18 @@ export function PerformanceAnalytics() {
                       const dataUltMovFormt = p.dataUltimaMov ? new Date(p.dataUltimaMov).toLocaleDateString('pt-BR') : '-';
                       return (
                         <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
-                          <td style={{padding: '10px', fontWeight: 500}} className="mono">{p.protocol}</td>
+                          <td style={{padding: '10px', fontWeight: 500}} className="mono">
+                            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                              <Pin 
+                                size={16} 
+                                color={pinnedProcesses.has(p.id) ? '#eab308' : '#cbd5e1'} 
+                                fill={pinnedProcesses.has(p.id) ? '#eab308' : 'none'}
+                                style={{cursor: 'pointer', flexShrink: 0}}
+                                onClick={() => handleTogglePin(p.id)}
+                              />
+                              {p.protocol}
+                            </div>
+                          </td>
                           <td style={{padding: '10px'}}>{p.type}</td>
                           <td style={{padding: '10px'}}>{p.analyst_name || 'Não atribuído'}</td>
                           <td style={{padding: '10px', textAlign: 'center'}}>{dataCadFormt}</td>
@@ -1080,11 +1178,64 @@ export function PerformanceAnalytics() {
                       <div className="kpi-sub">Processos no período</div>
                     </div>
                     <div className="kpi" style={{border: '1px solid #fca5a5', background: '#fef2f2'}}>
-                      <div className="kpi-label" style={{color: '#991b1b'}}>Tempo Médio no Gargalo</div>
+                      <div className="kpi-label" style={{color: '#991b1b'}}>
+                        {user?.role === 'analyst' ? 'Seu Tempo Médio no Gargalo' : 'Tempo Médio no Gargalo'}
+                      </div>
                       <div className="kpi-value" style={{color: '#ef4444'}}>{maxDiasMedio} dias</div>
-                      <div className="kpi-sub">Média geral da etapa mais longa</div>
+                      <div className="kpi-sub">
+                        {user?.role === 'analyst' 
+                          ? 'Média individual da sua carteira de processos' 
+                          : 'Média global da etapa mais longa'}
+                      </div>
                     </div>
                   </div>
+
+                  {/* Agrupamento Gerencial de Pinos dos Analistas */}
+                  {(user?.role === 'admin' || user?.role === 'secretary') && (() => {
+                    const analystPins = filteredData.filter(proc => {
+                      const isPinned = allPinnedProcesses.some(pin => pin.process_id === proc.id);
+                      return isPinned && proc.analyst_name;
+                    });
+                    
+                    if (analystPins.length === 0) return null;
+
+                    const groupedPins = analystPins.reduce((acc, curr) => {
+                      if (!acc[curr.analyst_name]) acc[curr.analyst_name] = [];
+                      acc[curr.analyst_name].push(curr);
+                      return acc;
+                    }, {});
+
+                    return (
+                      <div className="card" style={{marginBottom: '16px', borderLeft: '4px solid #8b5cf6', background: '#f5f3ff'}}>
+                        <div className="card-title" style={{color: '#6d28d9', marginBottom: '16px'}}>Processos em Foco dos Analistas</div>
+                        <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+                          {Object.entries(groupedPins).map(([analystName, processes]) => {
+                            const corAnalista = avcol(analystName.toLowerCase().replace(/\s/g, ''));
+                            return (
+                              <div key={analystName} style={{background: 'white', padding: '12px', borderRadius: '6px', border: '1px solid #ddd'}}>
+                                <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px'}}>
+                                  <div style={{width: 12, height: 12, borderRadius: '50%', background: corAnalista}}></div>
+                                  <strong style={{color: '#333'}}>{analystName}</strong>
+                                  <span className="badge b-gray" style={{fontSize: '11px'}}>{processes.length} processo(s) fixado(s)</span>
+                                </div>
+                                <div style={{display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '20px'}}>
+                                  {processes.map(p => (
+                                    <div key={p.id} style={{fontSize: '13px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0', paddingBottom: '4px'}}>
+                                      <div>
+                                        <Pin size={12} color={corAnalista} fill={corAnalista} style={{marginRight: '6px', verticalAlign: 'middle'}} />
+                                        <strong className="mono">{p.protocol}</strong> — {p.type}
+                                      </div>
+                                      <span style={{color: 'var(--blue)'}}>{p.tempoTotal} dias</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div className="card" style={{marginBottom: '16px'}}>
                     <div className="card-title">Histórico de Ciclo de Vida e Análise Qualitativa (Ordenado do Mais Antigo ao Mais Recente)</div>
@@ -1107,7 +1258,14 @@ export function PerformanceAnalytics() {
                         {gargalosPaginados.map(p => (
                           <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
                             <td style={{padding: '10px'}}>
-                              <div style={{fontWeight: 'bold', fontSize: '14px', color: '#0f172a'}} className="mono">
+                              <div style={{display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', fontSize: '14px', color: '#0f172a'}} className="mono">
+                                <Pin 
+                                  size={16} 
+                                  color={pinnedProcesses.has(p.id) ? '#eab308' : '#cbd5e1'} 
+                                  fill={pinnedProcesses.has(p.id) ? '#eab308' : 'none'}
+                                  style={{cursor: 'pointer', flexShrink: 0}}
+                                  onClick={() => handleTogglePin(p.id)}
+                                />
                                 {p.protocol}
                               </div>
                               <div style={{fontSize: '13px', color: '#334155', marginTop: '2px', fontWeight: 500}}>

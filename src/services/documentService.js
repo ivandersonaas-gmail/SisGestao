@@ -1,183 +1,46 @@
 import { supabase } from './supabaseClient'
-import * as pdfjs from 'pdfjs-dist'
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url'
-
-pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker
-
-export async function generateEmbedding(text) {
-  return new Array(384).fill(0)
-}
-
-async function extractText(file) {
-  if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-    try {
-      const arrayBuffer = await file.arrayBuffer()
-      const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise
-      let fullText = ''
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i)
-        const textContent = await page.getTextContent()
-        const pageText = textContent.items.map(item => item.str).join(' ')
-        fullText += pageText + '\n'
-      }
-      return fullText
-    } catch (err) {
-      console.error('Error extracting text from PDF:', err)
-      throw new Error('Falha ao extrair o texto do PDF no navegador.')
-    }
-  }
-  
-  if (file.type === 'text/csv' || file.name.endsWith('.csv')) {
-    const text = await file.text()
-    const lines = text.split('\n').filter(l => l.trim())
-    if (lines.length === 0) return ''
-    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
-    return lines.slice(1).map(row => {
-      const values = row.split(',').map(v => v.trim().replace(/"/g, ''))
-      return headers.map((h, i) => `${h}: ${values[i] || ''}`).join(' | ')
-    }).join('\n')
-  }
-  return await file.text()
-}
-
-function chunkText(text, documentName) {
-  const CHUNK_SIZE = 150
-  const CHUNK_OVERLAP = 30
-  const sections = text.split(/\n{2,}|\[Página \d+\]/).map(s => s.trim()).filter(s => s.length > 50)
-  const chunks = []
-  let index = 0
-  for (const section of sections) {
-    const words = section.split(' ')
-    for (let i = 0; i < words.length; i += CHUNK_SIZE - CHUNK_OVERLAP) {
-      const content = words.slice(i, i + CHUNK_SIZE).join(' ')
-      if (content.length < 100) continue
-      chunks.push({
-        content,
-        chunk_index: index++,
-        metadata: { source_file: documentName, section: section.substring(0, 60) }
-      })
-    }
-  }
-  return chunks
-}
 
 export async function uploadDocument(file) {
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
   const fileName = `${Date.now()}_${safeName}`
   const storagePath = `documents/${fileName}`
+  
   const { error: storageError } = await supabase.storage
     .from('rag-documents')
     .upload(storagePath, file)
-  if (storageError) throw new Error(`Erro no upload: ${storageError.message}`)
+    
+  if (storageError) throw new Error(`Erro no upload para o Storage: ${storageError.message}`)
+  
   const { data: doc, error: dbError } = await supabase
     .from('rag_documents')
     .insert({ name: file.name, type: file.type, size: file.size, storage_path: storagePath })
     .select().single()
-  if (dbError) throw new Error(`Erro ao registrar: ${dbError.message}`)
+    
+  if (dbError) throw new Error(`Erro ao registrar no banco: ${dbError.message}`)
+  
+  // Gatilho Local: Avisar o processador_pdf.py imediatamente!
+  try {
+    await fetch(`${import.meta.env.VITE_BACKEND_URL}/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ record: doc })
+    });
+  } catch (err) {
+    console.warn("Aviso: O processador_pdf.py local parece estar desligado.", err);
+  }
+  
   return doc
 }
 
 export async function ingestDocument(file, onProgress) {
-  onProgress?.('Registrando documento no repositório...')
-  const doc = await uploadDocument(file)
-
-  onProgress?.('Enviando para o LlamaParse na nuvem...')
-  
-  const LLAMA_API_KEY = import.meta.env.VITE_LLAMA_CLOUD_API_KEY || 'llx-fybwCC3onPgiIGhY70B5YuxLFhk1GSXpwgYIlcQHJKpYqRSS';
-  
   try {
-    const uploadFormData = new FormData();
-    uploadFormData.append('file', file);
-    uploadFormData.append('language', 'pt');
-    uploadFormData.append('result_type', 'markdown');
-
-    // 1. Upload do PDF diretamente para a API do LlamaParse
-    const uploadRes = await fetch('https://api.cloud.llamaindex.ai/v1/parsing/upload', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LLAMA_API_KEY}`
-      },
-      body: uploadFormData
-    });
-
-    if (!uploadRes.ok) {
-      throw new Error(`Falha no upload para o LlamaParse: ${uploadRes.status}`);
-    }
-
-    const uploadData = await uploadRes.json();
-    const jobId = uploadData.id;
-
-    // 2. Polling de status do Job na Nuvem
-    while (true) {
-      await new Promise(r => setTimeout(r, 2000));
-      
-      const statusRes = await fetch(`https://api.cloud.llamaindex.ai/v1/parsing/jobs/${jobId}`, {
-        headers: {
-          'Authorization': `Bearer ${LLAMA_API_KEY}`
-        }
-      });
-
-      if (!statusRes.ok) {
-        throw new Error('Falha ao verificar status no LlamaParse');
-      }
-
-      const statusData = await statusRes.json();
-
-      if (statusData.status === 'ERROR') {
-        throw new Error(statusData.error_message || 'Erro no LlamaParse ao processar documento');
-      }
-
-      if (statusData.status === 'SUCCESS') {
-        onProgress?.('Análise de alta fidelidade concluída!');
-        break;
-      }
-
-      onProgress?.('LlamaParse está analisando suas tabelas na nuvem...');
-    }
-
-    // 3. Download do Markdown do LlamaParse
-    onProgress?.('Obtendo Markdown estruturado...');
-    const resultRes = await fetch(`https://api.cloud.llamaindex.ai/v1/parsing/jobs/${jobId}/result/markdown`, {
-      headers: {
-        'Authorization': `Bearer ${LLAMA_API_KEY}`
-      }
-    });
-
-    if (!resultRes.ok) {
-      throw new Error('Falha ao baixar resultado do LlamaParse');
-    }
-
-    const text = await resultRes.text();
-
-    // 4. Criação das fatias (Chunking) e inserção direta no Supabase
-    onProgress?.('Dividindo texto em blocos...');
-    const rawChunks = chunkText(text, doc.name);
-
-    onProgress?.('Salvando trechos no banco de dados...');
-    const dbChunks = rawChunks.map(c => ({
-      document_id: doc.id,
-      content: c.content,
-      chunk_index: c.chunk_index,
-      metadata: c.metadata,
-      embedding: new Array(384).fill(0) // Dummy array de 384 dimensões exigido pela tabela
-    }));
-
-    // Inserção em lotes de 50 chunks
-    const BATCH_SIZE = 50;
-    for (let i = 0; i < dbChunks.length; i += BATCH_SIZE) {
-      const batch = dbChunks.slice(i, i + BATCH_SIZE);
-      const { error: insertError } = await supabase
-        .from('rag_chunks')
-        .insert(batch);
-      if (insertError) throw new Error(`Erro ao salvar no Supabase: ${insertError.message}`);
-    }
-
-    onProgress?.('Documento processado com sucesso!');
+    onProgress?.('Enviando documento para o servidor...')
+    const doc = await uploadDocument(file)
+    onProgress?.('Documento enviado com sucesso! Aguardando processamento pelo backend.')
     return { document: doc };
-
   } catch (err) {
     console.error("Erro na ingestão:", err);
-    throw new Error(`Erro no processamento LlamaParse: ${err.message}`);
+    throw new Error(`Erro ao transferir arquivo: ${err.message}`);
   }
 }
 

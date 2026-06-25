@@ -11,6 +11,7 @@
     "deploy": "git add backend.py requirements.txt src/components/RAGChat/RAGChat.jsx src/services/documentService.js src/services/ragService.js && git commit --amend --no-edit && git push origin main"
   },
   "dependencies": {
+    "@google/genai": "^2.10.0",
     "@supabase/supabase-js": "^2.104.0",
     "@xenova/transformers": "^2.17.2",
     "chart.js": "^4.5.1",

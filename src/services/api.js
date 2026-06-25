@@ -514,6 +514,54 @@ export const api = {
       from += limit;
     }
     return allData;
+  },
+
+  async getPinnedProcesses(userId) {
+    try {
+      const { data, error } = await supabase
+        .from('user_pinned_processes')
+        .select('process_id')
+        .eq('user_id', userId);
+      if (error) throw error;
+      return data.map(row => row.process_id);
+    } catch (e) {
+      console.error("Erro ao buscar processos fixados:", e);
+      return [];
+    }
+  },
+
+  async getAllPinnedProcesses() {
+    try {
+      const { data, error } = await supabase
+        .from('user_pinned_processes')
+        .select('user_id, process_id');
+      if (error) throw error;
+      return data || [];
+    } catch (e) {
+      console.error("Erro ao buscar todos os processos fixados:", e);
+      return [];
+    }
+  },
+
+  async togglePinProcess(userId, processId, isPinned) {
+    try {
+      if (isPinned) {
+        // Desfixar (Remover)
+        const { error } = await supabase
+          .from('user_pinned_processes')
+          .delete()
+          .match({ user_id: userId, process_id: processId });
+        if (error) throw error;
+      } else {
+        // Fixar (Inserir)
+        const { error } = await supabase
+          .from('user_pinned_processes')
+          .insert({ user_id: userId, process_id: processId });
+        if (error) throw error;
+      }
+    } catch (e) {
+      console.error("Erro ao alterar pin do processo:", e);
+      throw e;
+    }
   }
 };
-

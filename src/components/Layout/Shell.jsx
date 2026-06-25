@@ -94,6 +94,7 @@ export function Shell({ children, title, actions, armLen = 0 }) {
               <NavItem icon={Search} label="Consultar Processo" to="/consulta" />
               <NavItem icon={BarChart2} label="Minha Produtividade" to="/productivity" />
               <NavItem icon={BarChart2} label="Relatórios Avançados" to="/reports" />
+              <NavItem icon={BarChart2} label="Análise de Gargalos" to="/analytics" />
             </>
           )}
 

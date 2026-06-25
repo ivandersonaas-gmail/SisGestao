@@ -42,3 +42,7 @@ debug_*.py
 test_*.py
 fetch_db.js
 
+# Variáveis de ambiente
+.env
+.env.local
+
