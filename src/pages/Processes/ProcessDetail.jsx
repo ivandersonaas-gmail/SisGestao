@@ -128,6 +128,16 @@ export function ProcessDetail() {
   // Georeferencing states
   const [isGeoOpen, setIsGeoOpen] = useState(false);
   const [geoNotes, setGeoNotes] = useState('');
+  const [geoSocios, setGeoSocios] = useState('');
+  const [geoProjetoNome, setGeoProjetoNome] = useState('');
+  const [geoTipo, setGeoTipo] = useState('');
+  const [geoQualidade, setGeoQualidade] = useState('');
+  const [geoArea, setGeoArea] = useState('');
+  const [geoDimensaoLabel, setGeoDimensaoLabel] = useState('');
+  const [geoDimensaoValor, setGeoDimensaoValor] = useState('');
+  const [geoMotivo, setGeoMotivo] = useState('');
+  const [geoImageUrl, setGeoImageUrl] = useState('');
+  const [geoImageFile, setGeoImageFile] = useState(null);
   const [tempLat, setTempLat] = useState(null);
   const [tempLng, setTempLng] = useState(null);
   const [refLat, setRefLat] = useState(null);
@@ -1843,6 +1853,15 @@ Retorne APENAS um objeto JSON válido com o seguinte formato estruturado (sem bl
           const parsed = JSON.parse(proc.report_observation);
           if (parsed && typeof parsed === 'object' && ('notes' in parsed || 'drawings' in parsed)) {
             setGeoNotes(parsed.notes || '');
+            setGeoSocios(parsed.socios || '');
+            setGeoProjetoNome(parsed.projetoNome || '');
+            setGeoTipo(parsed.tipo || '');
+            setGeoQualidade(parsed.qualidade || '');
+            setGeoArea(parsed.area || '');
+            setGeoDimensaoLabel(parsed.dimensaoLabel || '');
+            setGeoDimensaoValor(parsed.dimensaoValor || '');
+            setGeoMotivo(parsed.motivo || '');
+            setGeoImageUrl(parsed.imageUrl || '');
             setGeoShape(parsed.geoShape ? (typeof parsed.geoShape === 'string' ? parsed.geoShape : JSON.stringify(parsed.geoShape)) : null);
             if (parsed.mainLabel) setMainLabel(parsed.mainLabel);
             if (parsed.refLabel) setRefLabel(parsed.refLabel);
@@ -1866,6 +1885,15 @@ Retorne APENAS um objeto JSON válido com o seguinte formato estruturado (sem bl
         }
       } else {
         setGeoNotes('');
+        setGeoSocios('');
+        setGeoProjetoNome('');
+        setGeoTipo('');
+        setGeoQualidade('');
+        setGeoArea('');
+        setGeoDimensaoLabel('');
+        setGeoDimensaoValor('');
+        setGeoMotivo('');
+        setGeoImageUrl('');
       }
     }
   }, [proc]);
@@ -2423,8 +2451,22 @@ Retorne APENAS um objeto JSON válido com o seguinte formato estruturado (sem bl
         } catch(e) {}
       }
 
+      let finalImageUrl = geoImageUrl;
+      if (geoImageFile) {
+        finalImageUrl = await api.uploadFile(geoImageFile);
+      }
+
       const payloadObj = {
         notes: geoNotes.trim(),
+        socios: geoSocios.trim(),
+        projetoNome: geoProjetoNome.trim(),
+        tipo: geoTipo.trim(),
+        qualidade: geoQualidade.trim(),
+        area: geoArea.trim(),
+        dimensaoLabel: geoDimensaoLabel.trim(),
+        dimensaoValor: geoDimensaoValor.trim(),
+        motivo: geoMotivo.trim(),
+        imageUrl: finalImageUrl,
         drawings: advancedDrawings,
         geoShape: geoShape ? (typeof geoShape === 'string' ? JSON.parse(geoShape) : geoShape) : null,
         mainLabel,
@@ -6412,12 +6454,75 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
           </div>
 
           <div className="fg" style={{marginTop: '16px'}}>
-            <label style={{fontWeight: 600}}>2. Observações Adicionais para o Relatório Técnico</label>
+            <label style={{fontWeight: 600, marginBottom: '10px'}}>2. Dados Estruturados para o Relatório Avançado</label>
+            
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px', background: 'var(--body-bg)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border)'}}>
+              <div className="fg">
+                <label>Sócios</label>
+                <input type="text" value={geoSocios} onChange={e => setGeoSocios(e.target.value)} placeholder="Ex: João, Maria..." />
+              </div>
+              <div className="fg">
+                <label>Nome do Projeto / Empreendimento</label>
+                <input type="text" value={geoProjetoNome} onChange={e => setGeoProjetoNome(e.target.value)} placeholder="Ex: Edifício Solar..." />
+              </div>
+              
+              <div className="fg">
+                <label>Tipo</label>
+                <input type="text" value={geoTipo} onChange={e => setGeoTipo(e.target.value)} placeholder="Ex: Edifício Multifamiliar" />
+              </div>
+              <div className="fg">
+                <label>Qualidade Construtiva</label>
+                <input type="text" value={geoQualidade} onChange={e => setGeoQualidade(e.target.value)} placeholder="Ex: Alto Padrão" />
+              </div>
+              
+              <div className="fg">
+                <label>Área Construída / Terreno</label>
+                <input type="text" value={geoArea} onChange={e => setGeoArea(e.target.value)} placeholder="Ex: 2.580,85 m²" />
+              </div>
+              <div className="fca gap8">
+                <div className="fg" style={{flex: 1}}>
+                  <label>Rótulo da Dimensão</label>
+                  <input type="text" value={geoDimensaoLabel} onChange={e => setGeoDimensaoLabel(e.target.value)} placeholder="Ex: Pavimentos, Lotes..." />
+                </div>
+                <div className="fg" style={{flex: 1}}>
+                  <label>Valor da Dimensão</label>
+                  <input type="text" value={geoDimensaoValor} onChange={e => setGeoDimensaoValor(e.target.value)} placeholder="Ex: 31, 150..." />
+                </div>
+              </div>
+              
+              <div className="fg" style={{gridColumn: '1 / -1'}}>
+                <label>Motivo do Parecer / Status Atual</label>
+                <input type="text" value={geoMotivo} onChange={e => setGeoMotivo(e.target.value)} placeholder="Ex: Aguardando atualização para Licença..." />
+              </div>
+              
+              <div className="fg" style={{gridColumn: '1 / -1'}}>
+                <label>Imagem do Projeto (Upload)</label>
+                <div className="fca gap10">
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    onChange={e => {
+                      if (e.target.files && e.target.files[0]) {
+                        setGeoImageFile(e.target.files[0]);
+                      }
+                    }} 
+                  />
+                  {geoImageUrl && !geoImageFile && (
+                    <span style={{fontSize: '12px', color: 'var(--green)'}}>✓ Imagem já salva</span>
+                  )}
+                  {geoImageFile && (
+                    <span style={{fontSize: '12px', color: 'var(--blue)'}}>Pronto para envio</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <label style={{fontWeight: 600}}>Observações Livres Adicionais</label>
             <textarea
               value={geoNotes}
               onChange={e => setGeoNotes(e.target.value)}
-              placeholder="Descreva detalhes específicos do terreno, andamento da obra ou notas gerais que devem constar impressas no relatório..."
-              rows={4}
+              placeholder="Descreva detalhes específicos do terreno, andamento da obra ou notas gerais..."
+              rows={3}
             />
           </div>
 

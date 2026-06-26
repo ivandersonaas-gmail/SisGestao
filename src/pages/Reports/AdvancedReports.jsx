@@ -3,13 +3,13 @@ import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { Badge } from '../../components/UI/Badge';
 
-const getParsedGeoNotes = (obs) => {
-  if (!obs) return '';
+const getParsedGeoData = (obs) => {
+  if (!obs) return { text: '' };
   try {
     const parsed = JSON.parse(obs);
-    return (parsed && typeof parsed === 'object') ? (parsed.notes || '') : obs;
+    return (parsed && typeof parsed === 'object') ? parsed : { text: obs };
   } catch (e) {
-    return obs;
+    return { text: obs };
   }
 };
 
@@ -523,12 +523,49 @@ export function AdvancedReports() {
                       </tr>
                       <tr style={{borderBottom: m.process?.latitude && m.process?.longitude ? 'none' : '1px solid #eee', pageBreakInside: 'avoid'}}>
                         <td colSpan={isAnalyst ? 3 : 4} style={{padding: '4px 4px 10px 4px', fontSize: '12px', verticalAlign: 'top'}}>
-                          <div style={{background: '#f8fafc', padding: '8px 12px', borderRadius: '4px', borderLeft: '3px solid #cbd5e1'}}>
-                            <strong style={{color: 'var(--text1)'}}>Observação: </strong>
-                            <span style={{fontStyle: 'italic', color: 'var(--text2)'}}>
-                              {getParsedGeoNotes(m.process?.report_observation) || '—'}
-                            </span>
-                          </div>
+                          {(() => {
+                            const geoData = getParsedGeoData(m.process?.report_observation);
+                            const hasAdvancedData = geoData.socios || geoData.projetoNome || geoData.tipo || geoData.qualidade || geoData.area || geoData.dimensaoValor || geoData.motivo || geoData.imageUrl;
+                            
+                            if (hasAdvancedData) {
+                              return (
+                                <div style={{display: 'flex', gap: '16px', background: '#f8fafc', padding: '12px', borderRadius: '4px', borderLeft: '4px solid #3b82f6'}}>
+                                  {geoData.imageUrl && (
+                                    <div style={{flex: '0 0 160px'}}>
+                                      <img src={geoData.imageUrl} alt="Projeto" style={{width: '100%', height: '100px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #cbd5e1'}} />
+                                    </div>
+                                  )}
+                                  <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px'}}>
+                                      {geoData.socios && <div><strong style={{color: 'var(--text1)'}}>Sócios:</strong> <span style={{color: 'var(--text2)'}}>{geoData.socios}</span></div>}
+                                      {geoData.projetoNome && <div><strong style={{color: 'var(--text1)'}}>Projeto:</strong> <span style={{color: 'var(--text2)'}}>{geoData.projetoNome}</span></div>}
+                                      {geoData.tipo && <div><strong style={{color: 'var(--text1)'}}>Tipo:</strong> <span style={{color: 'var(--text2)'}}>{geoData.tipo}</span></div>}
+                                      {geoData.qualidade && <div><strong style={{color: 'var(--text1)'}}>Qualidade:</strong> <span style={{color: 'var(--text2)'}}>{geoData.qualidade}</span></div>}
+                                      {geoData.area && <div><strong style={{color: 'var(--text1)'}}>Área:</strong> <span style={{color: 'var(--text2)'}}>{geoData.area}</span></div>}
+                                      {geoData.dimensaoValor && <div><strong style={{color: 'var(--text1)'}}>{geoData.dimensaoLabel || 'Dimensão'}:</strong> <span style={{color: 'var(--text2)'}}>{geoData.dimensaoValor}</span></div>}
+                                    </div>
+                                    <div style={{marginTop: '4px'}}>
+                                      {geoData.motivo && <div style={{marginBottom: '4px'}}><strong style={{color: 'var(--text1)'}}>Motivo / Status:</strong> <span style={{color: 'var(--text2)'}}>{geoData.motivo}</span></div>}
+                                      {(geoData.notes || geoData.text) && (
+                                        <div>
+                                          <strong style={{color: 'var(--text1)'}}>Observação:</strong> <span style={{fontStyle: 'italic', fontSize: '13px', color: 'var(--text2)'}}>{geoData.notes || geoData.text}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            } else {
+                              return (
+                                <div style={{background: '#f8fafc', padding: '8px 12px', borderRadius: '4px', borderLeft: '3px solid #cbd5e1'}}>
+                                  <strong style={{color: 'var(--text1)'}}>Observação: </strong>
+                                  <span style={{fontStyle: 'italic', color: 'var(--text2)'}}>
+                                    {geoData.notes || geoData.text || '—'}
+                                  </span>
+                                </div>
+                              );
+                            }
+                          })()}
                         </td>
                       </tr>
                       {m.process?.latitude && m.process?.longitude && (
