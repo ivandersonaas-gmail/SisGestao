@@ -176,7 +176,7 @@ def health_check():
 
 if __name__ == "__main__":
     print("=====================================================")
-    print("🚀 Iniciando Servidor de Processamento RAG (SisGestão)")
+    print("[*] Iniciando Servidor de Processamento RAG (SisGestao)")
     print("=====================================================")
     print("Aguardando chamadas POST na rota http://localhost:5000/webhook\n")
     # Roda o servidor web na porta 5000

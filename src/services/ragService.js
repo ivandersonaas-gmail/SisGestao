@@ -68,7 +68,7 @@ Pergunta do usuário: ${question}`;
 
     // 5. Chamada à API do Gemini para gerar a resposta final via SDK
     const geminiRes = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.1-flash-lite",
       contents: `${systemPrompt}\n\n${promptWithContext}`
     });
 

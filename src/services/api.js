@@ -505,7 +505,7 @@ export const api = {
     while (true) {
       const { data, error } = await supabase
         .from('movements')
-        .select('id, process_id, status, created_at, created_by_name, notes')
+        .select('id, process_id, status, created_at, created_by_name, created_by_id, notes')
         .range(from, from + limit - 1);
       if (error) throw error;
       if (!data || data.length === 0) break;

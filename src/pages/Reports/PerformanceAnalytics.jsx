@@ -68,6 +68,8 @@ export function PerformanceAnalytics() {
   const [filtroAno, setFiltroAno] = useState('');
   const [filtroMes, setFiltroMes] = useState('');
   const [filtroTrimestre, setFiltroTrimestre] = useState('');
+  const [baseTemporal, setBaseTemporal] = useState('conclusao'); // 'conclusao' (Produtividade Real) ou 'protocolo'
+  const [criterioAnalista, setCriterioAnalista] = useState('atuou'); // 'atuou' (Produziu/Atuou) ou 'atual' (Responsável Atual)
 
   // Refs para as instâncias dos gráficos
   const chartTendenciaRef = useRef(null);
@@ -110,10 +112,22 @@ export function PerformanceAnalytics() {
     fetchData();
   }, []);
 
+  const limparFiltros = () => {
+    setFiltroPeriodoInicio('');
+    setFiltroPeriodoFim('');
+    setFiltroTipoProc('');
+    setFiltroStatus('');
+    setFiltroAnalista('');
+    setFiltroAno('');
+    setFiltroMes('');
+    setFiltroTrimestre('');
+    setShowOnlyPinned(false);
+  };
+
   // Reset de página ao alterar filtros
   useEffect(() => {
     setPaginaGargalo(1);
-  }, [filtroPeriodoInicio, filtroPeriodoFim, filtroTipoProc, filtroStatus, filtroAnalista, filtroAno, filtroMes, filtroTrimestre]);
+  }, [filtroPeriodoInicio, filtroPeriodoFim, filtroTipoProc, filtroStatus, filtroAnalista, filtroAno, filtroMes, filtroTrimestre, baseTemporal, criterioAnalista]);
 
   // Set de feriados formatado em YYYY-MM-DD para busca veloz
   const feriadosSet = new Set(feriados.map(f => f.data));
@@ -263,6 +277,17 @@ export function PerformanceAnalytics() {
        }
     });
 
+    // Identificar analistas que atuaram tecnicamente no processo
+    const analistasAtuaramSet = new Set();
+    if (proc.analyst_name) analistasAtuaramSet.add(proc.analyst_name);
+    
+    const technicalStatuses = ['EM_ANALISE', 'PARECER', 'ANUENCIA', 'ANUENCIA_SOLO', 'LIC_COND', 'ATO_APR', 'V2_ATO', 'V2_COND', 'ENC_ASSINATURA', 'TOPOGRAFIA', 'ASSINADO'];
+    procMovs.forEach(m => {
+      if (technicalStatuses.includes(m.status) && m.created_by_name && !m.created_by_name.toLowerCase().includes('protocolo')) {
+        analistasAtuaramSet.add(m.created_by_name);
+      }
+    });
+
     return {
       ...proc,
       prazoLegal,
@@ -281,7 +306,8 @@ export function PerformanceAnalytics() {
       concluidoNoPrazo,
       etapaGargalo,
       maxDiasGargalo,
-      motivoGargalo
+      motivoGargalo,
+      analistasQueAtuaram: Array.from(analistasAtuaramSet)
     };
   });
   }, [rawProcesses, movements, processTypes, feriados]);
@@ -292,9 +318,14 @@ export function PerformanceAnalytics() {
       // Filtro Trabalhando Agora (Favoritados)
       if (showOnlyPinned && !pinnedProcesses.has(proc.id)) return false;
 
-      // Filtro por Período de Protocolo
-      if (filtroPeriodoInicio && new Date(proc.dataProtocolo) < new Date(filtroPeriodoInicio + 'T00:00:00')) return false;
-      if (filtroPeriodoFim && new Date(proc.dataProtocolo) > new Date(filtroPeriodoFim + 'T23:59:59')) return false;
+      // Data de referência temporal para o filtro (Conclusão/Produção vs Protocolo de Entrada)
+      const dataRef = (baseTemporal === 'conclusao' && proc.estaConcluido)
+        ? (proc.dataConclusao || proc.dataProtocolo)
+        : proc.dataProtocolo;
+
+      // Filtro por Período de Referência
+      if (filtroPeriodoInicio && new Date(dataRef) < new Date(filtroPeriodoInicio + 'T00:00:00')) return false;
+      if (filtroPeriodoFim && new Date(dataRef) > new Date(filtroPeriodoFim + 'T23:59:59')) return false;
 
       // Filtro por Tipo de Processo
       if (filtroTipoProc && proc.type !== filtroTipoProc) return false;
@@ -305,27 +336,35 @@ export function PerformanceAnalytics() {
 
       // Filtro por Analista Responsável
       if (user?.role === 'analyst') {
-        if (proc.assigned_to !== user.id && proc.analyst_name !== user.name) return false;
+        const atendeAnalista = criterioAnalista === 'atuou'
+          ? (proc.assigned_to === user.id || proc.analyst_name === user.name || (proc.analistasQueAtuaram && proc.analistasQueAtuaram.includes(user.name)))
+          : (proc.assigned_to === user.id || proc.analyst_name === user.name);
+        if (!atendeAnalista) return false;
       } else {
-        if (filtroAnalista && proc.analyst_name !== filtroAnalista) return false;
+        if (filtroAnalista) {
+          const atendeAnalista = criterioAnalista === 'atuou'
+            ? (proc.analyst_name === filtroAnalista || (proc.analistasQueAtuaram && proc.analistasQueAtuaram.includes(filtroAnalista)))
+            : (proc.analyst_name === filtroAnalista);
+          if (!atendeAnalista) return false;
+        }
       }
 
-      // Filtros de tempo agrupados
-      const dProt = new Date(proc.dataProtocolo);
-      const anoProt = dProt.getFullYear();
-      const mesProt = dProt.getMonth() + 1; // 1-indexed
+      // Filtros de tempo agrupados baseados na data de referência
+      const dRef = new Date(dataRef);
+      const anoRef = dRef.getFullYear();
+      const mesRef = dRef.getMonth() + 1; // 1-indexed
 
-      if (filtroAno && anoProt !== parseInt(filtroAno)) return false;
-      if (filtroMes && mesProt !== parseInt(filtroMes)) return false;
+      if (filtroAno && anoRef !== parseInt(filtroAno)) return false;
+      if (filtroMes && mesRef !== parseInt(filtroMes)) return false;
 
       if (filtroTrimestre) {
-        const trim = Math.ceil(mesProt / 3);
+        const trim = Math.ceil(mesRef / 3);
         if (trim !== parseInt(filtroTrimestre)) return false;
       }
 
       return true;
     });
-  }, [processedData, showOnlyPinned, pinnedProcesses, filtroPeriodoInicio, filtroPeriodoFim, filtroTipoProc, filtroStatus, user, filtroAnalista, filtroAno, filtroMes, filtroTrimestre]);
+  }, [processedData, showOnlyPinned, pinnedProcesses, filtroPeriodoInicio, filtroPeriodoFim, filtroTipoProc, filtroStatus, user, filtroAnalista, filtroAno, filtroMes, filtroTrimestre, baseTemporal, criterioAnalista]);
 
   // Cálculos Gerais dos Indicadores (Base Filtrada)
   const stats = useMemo(() => {
@@ -413,9 +452,16 @@ export function PerformanceAnalytics() {
   };
 
   // Desempenho por Analista (Setor)
-  const analistasList = Array.from(new Set(processedData.filter(p => p.analyst_name).map(p => p.analyst_name)));
+  const analistasList = Array.from(new Set(
+    processedData.flatMap(p => [p.analyst_name, ...(p.analistasQueAtuaram || [])]).filter(Boolean)
+  )).sort();
+
   const analistasDesempenho = analistasList.map(name => {
-    const procs = filteredData.filter(p => p.analyst_name === name);
+    const procs = filteredData.filter(p => {
+      return criterioAnalista === 'atuou'
+        ? (p.analyst_name === name || (p.analistasQueAtuaram && p.analistasQueAtuaram.includes(name)))
+        : (p.analyst_name === name);
+    });
     const conc = procs.filter(p => p.estaConcluido);
     const totalDias = conc.reduce((acc, curr) => acc + curr.tempoTotal, 0);
     const prazoMedio = conc.length > 0 ? parseFloat((totalDias / conc.length).toFixed(1)) : 0;
@@ -631,19 +677,7 @@ export function PerformanceAnalytics() {
       });
     }
 
-  }, [loading, filtroPeriodoInicio, filtroPeriodoFim, filtroTipoProc, filtroStatus, filtroAnalista, filtroAno, filtroMes, filtroTrimestre]);
-
-  // Função para Limpar Filtros
-  const limparFiltros = () => {
-    setFiltroPeriodoInicio('');
-    setFiltroPeriodoFim('');
-    setFiltroTipoProc('');
-    setFiltroStatus('');
-    setFiltroAnalista('');
-    setFiltroAno('');
-    setFiltroMes('');
-    setFiltroTrimestre('');
-  };
+  }, [loading, filtroPeriodoInicio, filtroPeriodoFim, filtroTipoProc, filtroStatus, filtroAnalista, filtroAno, filtroMes, filtroTrimestre, baseTemporal, criterioAnalista]);
 
   const formatarPercentual = (val) => isNaN(val) ? 0 : val;
 
@@ -659,7 +693,14 @@ export function PerformanceAnalytics() {
           marginTop: '10px'
         }}>
           <div className="fg">
-            <label>Ano do Protocolo</label>
+            <label style={{fontWeight: 600, color: 'var(--blue, #2563eb)'}}>Data de Referência</label>
+            <select value={baseTemporal} onChange={e => setBaseTemporal(e.target.value)} style={{borderColor: 'var(--blue, #2563eb)'}}>
+              <option value="conclusao">Data de Conclusão / Entrega (Produtividade Real)</option>
+              <option value="protocolo">Data de Entrada do Protocolo (Ciclo Original)</option>
+            </select>
+          </div>
+          <div className="fg">
+            <label>{baseTemporal === 'conclusao' ? 'Ano da Conclusão' : 'Ano do Protocolo'}</label>
             <select value={filtroAno} onChange={e => setFiltroAno(e.target.value)}>
               <option value="">Todos os anos</option>
               <option value="2026">2026</option>
@@ -678,7 +719,7 @@ export function PerformanceAnalytics() {
             </select>
           </div>
           <div className="fg">
-            <label>Mês do Protocolo</label>
+            <label>{baseTemporal === 'conclusao' ? 'Mês da Conclusão' : 'Mês do Protocolo'}</label>
             <select value={filtroMes} onChange={e => setFiltroMes(e.target.value)}>
               <option value="">Todos os meses</option>
               <option value="1">Janeiro</option>
@@ -713,15 +754,24 @@ export function PerformanceAnalytics() {
             </select>
           </div>
           {user?.role !== 'analyst' && (
-            <div className="fg">
-              <label>Analista Responsável</label>
-              <select value={filtroAnalista} onChange={e => setFiltroAnalista(e.target.value)}>
-                <option value="">Todos os analistas</option>
-                {analistasList.map(a => (
-                  <option key={a} value={a}>{a}</option>
-                ))}
-              </select>
-            </div>
+            <>
+              <div className="fg">
+                <label>Analista Responsável</label>
+                <select value={filtroAnalista} onChange={e => setFiltroAnalista(e.target.value)}>
+                  <option value="">Todos os analistas</option>
+                  {analistasList.map(a => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="fg">
+                <label style={{fontWeight: 600}}>Vínculo do Analista</label>
+                <select value={criterioAnalista} onChange={e => setCriterioAnalista(e.target.value)}>
+                  <option value="atuou">Produzido / Atuou no Processo (Para Metas e Relatórios)</option>
+                  <option value="atual">Apenas Responsável Atual (Mesa de Trabalho)</option>
+                </select>
+              </div>
+            </>
           )}
           <div className="fg">
             <label>Período Inicial</label>

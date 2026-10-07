@@ -49,7 +49,7 @@ def gerar_documento_hipotetico(pergunta: str) -> str:
         prompt_hyde = f"Escreva um trecho em formato de texto jurídico, normativo ou de plano diretor municipal que responda diretamente à pergunta. Use linguagem técnica de direito urbanístico. Escreva apenas o parágrafo hipotético, sem introduções.\n\nPergunta: {pergunta}"
         
         response = client_gemini.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.1-flash-lite',
             contents=prompt_hyde
         )
         doc_hipotetico = response.text or ""
@@ -337,7 +337,7 @@ def ask():
         prompt_final = f"Baseado ÚNICA E EXCLUSIVAMENTE nas leis abaixo, responda à pergunta do projetista.\n\n{global_mega_documento}\n\nPergunta do Usuário: {question}"
         
         response = client_gemini.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.1-flash-lite',
             contents=prompt_final,
             config={
                 "system_instruction": "Você é o Oráculo, um analista técnico avançado e especialista em aprovação de projetos arquitetônicos. REGRA DE OURO: Responda a pergunta baseando-se EXCLUSIVAMENTE nas leis do documento. NUNCA invente informações. Sempre cite o número do Artigo ou a seção que fundamenta sua resposta."
@@ -378,19 +378,62 @@ def extrair_texto_da_url(url):
         import requests
         import pdfplumber
         import io
+        from google import genai
+        from google.genai import types
+        import os
+
         response = requests.get(url, timeout=30)
         response.raise_for_status()
-        pdf_file = io.BytesIO(response.content)
+        pdf_bytes = response.content
+        pdf_file = io.BytesIO(pdf_bytes)
         text = ""
         with pdfplumber.open(pdf_file) as pdf:
             for page in pdf.pages:
                 page_text = page.extract_text()
                 if page_text:
                     text += page_text + "\n"
+        
+        # Se o texto extraído for muito curto (menos de 100 caracteres) ou vazio,
+        # indica que o PDF é escaneado (sem OCR). Ativamos o fallback multimodal.
+        if len(text.strip()) < 100:
+            print(f"[Auditoria] PDF sem texto legível detectado para {url}. Iniciando extração multimodal via Gemini...")
+            gemini_key = os.environ.get("GEMINI_API_KEY")
+            if not gemini_key:
+                print("[Auditoria] Erro: GEMINI_API_KEY não configurada no ambiente. Não é possível rodar extração multimodal.")
+                return text
+
+            client_gemini = genai.Client(api_key=gemini_key)
+            prompt_ocr = (
+                "Você é um analista sênior especialista em leitura de documentos escaneados "
+                "e certidões técnicas de engenharia/urbanismo. "
+                "Transcreva todo o texto contido neste documento PDF de forma completa e fiel. "
+                "Preserve todos os valores numéricos, áreas, recuos, nomes de proprietários e dados cadastrais. "
+                "Caso existam tabelas, transcreva-as estruturadamente em formato markdown."
+            )
+            
+            # Envia o PDF inteiro como binário para o Gemini ler visualmente
+            res = client_gemini.models.generate_content(
+                model='gemini-3.1-flash-lite',
+                contents=[
+                    types.Part.from_bytes(
+                        data=pdf_bytes,
+                        mime_type='application/pdf',
+                    ),
+                    prompt_ocr
+                ]
+            )
+            extracted_text = res.text or ""
+            if extracted_text:
+                print(f"[Auditoria] Extração multimodal concluída com sucesso ({len(extracted_text)} caracteres).")
+                return extracted_text
+            else:
+                print("[Auditoria] Aviso: Gemini não retornou texto para a extração multimodal.")
+                
         return text
     except Exception as e:
         print(f"Erro ao extrair texto da URL {url}: {e}")
         return ""
+
 
 @app.route("/api/run_auditoria", methods=["POST"])
 @app.route("/run_auditoria", methods=["POST"])
@@ -456,6 +499,33 @@ Abaixo estão os textos extraídos dos documentos disponíveis:
 {doc_texts_block}
 
 Você deve preencher a tabela de confrontação de dados e também as informações cadastrais encontradas.
+
+REGRAS CRÍTICAS DE EXTRAÇÃO:
+1. SOBRE O DOCUMENTO BCI (Boletim de Cadastro Imobiliário):
+   - Extraia o Lote (lote_bci), a Quadra (quadra_bci) e o Loteamento (loteamento_bci) UNICAMENTE e EXCLUSIVAMENTE a partir das informações contidas no campo ou seção "ZONEAMENTO" do documento BCI.
+   - Se a seção ou campo "ZONEAMENTO" estiver vazia, em branco ou sem qualquer informação escrita (mesmo que haja lote e quadra na seção "INFORMAÇÕES DA INSCRIÇÃO"), você DEVE obrigatoriamente preencher os campos "lote_bci", "quadra_bci" e "loteamento_bci" como "-".
+   - É expressamente PROIBIDO copiar ou inferir lote, quadra ou loteamento da seção "INFORMAÇÕES DA INSCRIÇÃO" ou de qualquer outra área do BCI sob nenhuma circunstância. Se o "ZONEAMENTO" estiver em branco, o lote, quadra e loteamento do BCI na tabela devem ser obrigatoriamente "-".
+
+2. SOBRE A COLUNA PROJETO (chaves terminadas em "_projeto"):
+   - Preencha os dados da coluna Projeto (como lote_projeto, quadra_projeto, bairro_projeto, area_terreno_projeto, area_const_projeto, requerente_projeto, endereco_projeto) UNICAMENTE e EXCLUSIVAMENTE a partir dos textos dos documentos identificados como "PROJETO_ARQUITETONICO" ou "MEMORIAL_DESCRITIVO".
+   - Se os documentos "PROJETO_ARQUITETONICO" e "MEMORIAL_DESCRITIVO" NÃO estiverem presentes na listagem de documentos disponíveis acima, você DEVE preencher todos os campos de projeto (lote_projeto, quadra_projeto, bairro_projeto, area_terreno_projeto, area_const_projeto, requerente_projeto, endereco_projeto) estritamente como "-". NÃO copie ou infira os dados do projeto a partir de outros documentos (Certidão, BCI, CND ou ARTs).
+
+3. SOBRE A ART/RRT (chaves contendo "art_projeto" ou "art_execucao"):
+   - Toda e qualquer área descrita em documentos de ART ou RRT refere-se sempre à ÁREA DE CONSTRUÇÃO (ou área de atuação do profissional).
+   - NUNCA extraia área de terreno de documentos de ART ou RRT, pois a ART/RRT não contém a informação de área de terreno do imóvel.
+   - Portanto, os campos "area_terreno_art_projeto" e "area_terreno_art_execucao" devem ser preenchidos estritamente como "-".
+
+4. SOBRE A ÁREA DO TERRENO NA CERTIDÃO/ESCRITURA (area_terreno_certidao):
+   - Se a Certidão ou Escritura de Inteiro Teor apresentar as metragens/dimensões lineares dos lados do terreno:
+     a) Caso o terreno seja um retângulo perfeito (ex: "10 metros de frente por 20 metros de fundos/laterais"), calcule a área multiplicando a frente pelas laterais (ex: 10 * 20 = 200,00).
+     b) Caso o terreno seja um quadrilátero irregular com medidas diferentes nos lados opostos (ex: Frente = 12,50m, Fundos = 13,52m, Lado Direito = 29,97m, Lado Esquerdo = 31,39m), você DEVE calcular a área aproximada utilizando a média dos lados opostos: Área = ((Frente + Fundos) / 2) * ((Lado Direito + Lado Esquerdo) / 2). Exemplo: ((12.501 + 13.519) / 2) * ((29.973 + 31.393) / 2) = 13.01 * 30.683 = 399.19 m².
+     c) Insira apenas o número resultante formatado (ex: "200,00" ou "399,19") no campo "area_terreno_certidao".
+   - Não deixe esse campo como "-" se for possível calcular a área (seja ela regular ou irregular) a partir das dimensões lineares informadas no texto da Certidão/Escritura.
+
+5. FIDELIDADE AOS DADOS DE LOTE E QUADRA:
+   - Seja extremamente rigoroso e fiel na localização e extração do Lote e da Quadra de todos os documentos (Certidão, BCI, CND, ARTs, etc.).
+   - Não invente ou presuma números de lote ou quadra se eles não estiverem explicitamente descritos no texto de cada respectivo documento. Se não constar no documento específico, preencha o campo respectivo com "-".
+
 Retorne APENAS um objeto JSON válido com o seguinte formato estruturado (sem blocos de código markdown ou texto explicativo extra, apenas o JSON bruto):
 {{
   "confrontacao": {{
@@ -613,7 +683,7 @@ Retorne APENAS um objeto JSON válido com o seguinte formato estruturado (sem bl
 
         client_gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
         response = client_gemini.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.1-flash-lite',
             contents=prompt_final,
             config={
                 "response_mime_type": "application/json"

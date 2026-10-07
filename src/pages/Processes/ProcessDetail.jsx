@@ -198,6 +198,7 @@ export function ProcessDetail() {
   // Progresso de extração e minuta
   const [extractionLoading, setExtractionLoading] = useState(false);
   const [extractionProgress, setExtractionProgress] = useState('');
+  const [extractionProgressPercent, setExtractionProgressPercent] = useState(0);
   const [draftMinuta, setDraftMinuta] = useState('');
   const [requerenteType, setRequerenteType] = useState(null); // 'pf', 'pj' ou null
 
@@ -871,11 +872,15 @@ export function ProcessDetail() {
 
   const handleRunAuditoria = async () => {
     setExtractionLoading(true);
+    setExtractionProgressPercent(10);
     setExtractionProgress('Salvando arquivos locais e preparando auditoria técnica...');
+
+    let progressInterval = null;
 
     try {
       // 1. Salvar os arquivos pendentes localmente para obter as URLs do Supabase
       const finalChecklistData = await handleSaveChecklist(checklistData, true);
+      setExtractionProgressPercent(25);
       
       // 2. Mapear os documentos que possuem URL pública no Supabase
       const docsToSend = {};
@@ -920,299 +925,50 @@ export function ProcessDetail() {
       if (Object.keys(docsToSend).length === 0) {
         alert('Por favor, anexe ou garanta que há ao menos um arquivo carregado na seção de documentos para iniciar a auditoria automatizada.');
         setExtractionLoading(false);
+        setExtractionProgressPercent(0);
         return;
       }
 
-      setExtractionProgress('Lendo e extraindo conteúdo dos documentos...');
+      setExtractionProgressPercent(40);
+      setExtractionProgress('Enviando documentos para processamento e análise no backend Python (Flask)...');
 
-      // 3. Extrair texto de todos os documentos anexados client-side
-      const extractedTexts = {};
-      const extractionPromises = [];
-
-      Object.keys(docsToSend).forEach(key => {
-        if (key === 'lic_ambient_files') return;
-        const docsArray = Array.isArray(docsToSend[key]) ? docsToSend[key] : [docsToSend[key]];
-        
-        docsArray.forEach((docItem, idx) => {
-          extractionPromises.push(
-            (async () => {
-              try {
-                const text = await extractTextFromDoc(docItem, key);
-                if (text && text.trim().length > 0) {
-                  if (!extractedTexts[key]) extractedTexts[key] = [];
-                  extractedTexts[key].push(text);
-                }
-              } catch (err) {
-                console.warn(`Erro ao extrair texto de ${key} [${idx}]:`, err);
-              }
-            })()
-          );
+      // Iniciar animação progressiva da barra (de 40% a 95% de forma suave)
+      progressInterval = setInterval(() => {
+        setExtractionProgressPercent(prev => {
+          if (prev < 95) {
+            return prev + 5;
+          }
+          return prev;
         });
-      });
+      }, 700);
 
-      if (docsToSend.lic_ambient_files) {
-        docsToSend.lic_ambient_files.forEach((docItem, idx) => {
-          extractionPromises.push(
-            (async () => {
-              try {
-                const text = await extractTextFromDoc(docItem, 'lic_ambient_files');
-                if (text && text.trim().length > 0) {
-                  if (!extractedTexts.lic_ambient_files) {
-                    extractedTexts.lic_ambient_files = [];
-                  }
-                  extractedTexts.lic_ambient_files.push(text);
-                }
-              } catch (err) {
-                console.warn(`Erro ao extrair texto de lic_ambient_files [${idx}]:`, err);
-              }
-            })()
-          );
-        });
-      }
-
-      await Promise.all(extractionPromises);
-
-      let docTextsBlock = "";
-      Object.keys(extractedTexts).forEach(key => {
-        if (key === 'lic_ambient_files') {
-          docTextsBlock += `\nDOCUMENTO: LIC_AMBIENTAL (MÚLTIPLOS ARQUIVOS)\n"""\n${extractedTexts.lic_ambient_files.join('\n---\n')}\n"""\n`;
-        } else {
-          const texts = Array.isArray(extractedTexts[key]) ? extractedTexts[key].join('\n---\n') : extractedTexts[key];
-          docTextsBlock += `\nDOCUMENTO: ${key.toUpperCase()}\n"""\n${texts}\n"""\n`;
-        }
-      });
-
-      if (!docTextsBlock.trim()) {
-        throw new Error('Não foi possível extrair conteúdo textual legível de nenhum dos arquivos fornecidos.');
-      }
-
-      setExtractionProgress('Enviando documentos para análise estruturada com Inteligência Artificial (Gemini)...');
-
-      // 4. Montar prompt com refinamento de regras
-      const prompt_final = `Analise o texto extraído de documentos de um processo de licenciamento de obras e retorne um objeto JSON contendo dados extraídos de forma exata e fiel, sem alucinações.
-Abaixo estão os textos extraídos dos documentos disponíveis:
-
-${docTextsBlock}
-
-Você deve preencher a tabela de confrontação de dados e também as informações cadastrais encontradas.
-
-REGRAS CRÍTICAS DE EXTRAÇÃO:
-1. SOBRE O DOCUMENTO BCI (Boletim de Cadastro Imobiliário):
-   - Extraia o "Lote" (lote_bci) e a "Quadra" (quadra_bci) UNICAMENTE a partir das informações contidas na seção "ZONEAMENTO" do documento BCI.
-   - Ignore completamente quaisquer informações de Lote e Quadra que estejam sob a seção "INFORMAÇÕES DA INSCRIÇÃO" do BCI, pois estas não nos interessam e são antigas/desconsideradas.
-
-2. SOBRE A COLUNA PROJETO (chaves terminadas em "_projeto"):
-   - Preencha os dados da coluna Projeto (como lote_projeto, quadra_projeto, bairro_projeto, area_terreno_projeto, area_const_projeto, requerente_projeto, endereco_projeto) UNICAMENTE e EXCLUSIVAMENTE a partir dos textos dos documentos identificados como "PROJETO_ARQUITETONICO" ou "MEMORIAL_DESCRITIVO".
-   - Se os documentos "PROJETO_ARQUITETONICO" e "MEMORIAL_DESCRITIVO" NÃO estiverem presentes na listagem de documentos disponíveis acima, você DEVE preencher todos os campos de projeto (lote_projeto, quadra_projeto, bairro_projeto, area_terreno_projeto, area_const_projeto, requerente_projeto, endereco_projeto) estritamente como "-". NÃO copie ou infira os dados do projeto a partir de outros documentos (Certidão, BCI, CND ou ARTs).
-
-3. SOBRE A ART/RRT (chaves contendo "art_projeto" ou "art_execucao"):
-   - Toda e qualquer área descrita em documentos de ART ou RRT refere-se sempre à ÁREA DE CONSTRUÇÃO (ou área de atuação do profissional).
-   - NUNCA extraia área de terreno de documentos de ART ou RRT, pois a ART/RRT não contém a informação de área de terreno do imóvel.
-   - Portanto, os campos "area_terreno_art_projeto" e "area_terreno_art_execucao" devem ser preenchidos estritamente como "-".
-
-Retorne APENAS um objeto JSON válido com o seguinte formato estruturado (sem blocos de código markdown ou texto explicativo extra, apenas o JSON bruto):
-{
-  "confrontacao": {
-    "lote_certidao": "(lote no documento de certidão)",
-    "lote_bci": "(lote no BCI)",
-    "lote_art_projeto": "(lote na ART de projeto)",
-    "lote_art_execucao": "(lote na ART de execução)",
-    "lote_projeto": "(lote no projeto)",
-    "lote_lic_ambient": "(lote na licença ambiental)",
-    "lote_cnd": "(lote na CND)",
-    "lote_obs": "(observação de lote se houver)",
-    
-    "quadra_certidao": "(quadra na certidão)",
-    "quadra_bci": "(quadra no BCI)",
-    "quadra_art_projeto": "(quadra na ART de projeto)",
-    "quadra_art_execucao": "(quadra na ART de execução)",
-    "quadra_projeto": "(quadra no projeto)",
-    "quadra_lic_ambient": "(quadra na licença ambiental)",
-    "quadra_cnd": "(quadra na CND)",
-    "quadra_obs": "",
-    
-    "loteamento_certidao": "(loteamento na certidão)",
-    "loteamento_bci": "(loteamento no BCI)",
-    "loteamento_art_projeto": "(loteamento na ART de projeto)",
-    "loteamento_art_execucao": "(loteamento na ART de execução)",
-    "loteamento_projeto": "(loteamento no projeto)",
-    "loteamento_lic_ambient": "(loteamento na licença ambiental)",
-    "loteamento_cnd": "(loteamento na CND)",
-    "loteamento_obs": "",
-
-    "bairro_certidao": "(bairro na certidão)",
-    "bairro_bci": "(bairro no BCI)",
-    "bairro_art_projeto": "(bairro na ART de projeto)",
-    "bairro_art_execucao": "(bairro na ART de execução)",
-    "bairro_projeto": "(bairro no projeto)",
-    "bairro_lic_ambient": "(bairro na licença ambiental)",
-    "bairro_cnd": "(bairro na CND)",
-    "bairro_obs": "",
-
-    "area_terreno_certidao": "(área de terreno na certidão)",
-    "area_terreno_bci": "(área de terreno no BCI)",
-    "area_terreno_art_projeto": "(área de terreno na ART projeto)",
-    "area_terreno_art_execucao": "(área de terreno na ART execução)",
-    "area_terreno_projeto": "(área de terreno no projeto)",
-    "area_terreno_lic_ambient": "(área de terreno na licença ambiental)",
-    "area_terreno_cnd": "(área de terreno na CND)",
-    "area_terreno_obs": "",
-
-    "area_const_certidao": "(área de construção na certidão)",
-    "area_const_bci": "(área de construção no BCI)",
-    "area_const_art_projeto": "(área de construção na ART projeto)",
-    "area_const_art_execucao": "(área de construção na ART execução)",
-    "area_const_projeto": "(área de construção no projeto)",
-    "area_const_lic_ambient": "(área de construção na licença ambiental)",
-    "area_const_cnd": "(área de construção na CND)",
-    "area_const_obs": "",
-
-    "requerente_certidao": "(requerente na certidão)",
-    "requerente_bci": "(requerente no BCI)",
-    "requerente_art_projeto": "(requerente na ART projeto)",
-    "requerente_art_execucao": "(requerente na ART execução)",
-    "requerente_projeto": "(requerente no projeto)",
-    "requerente_lic_ambient": "(requerente na licença ambiental)",
-    "requerente_cnd": "(requerente na CND)",
-    "requerente_obs": "",
-
-    "endereco_certidao": "(endereço na certidão)",
-    "endereco_bci": "(endereço no BCI)",
-    "endereco_art_projeto": "(endereço na ART projeto)",
-    "endereco_art_execucao": "(endereço na ART execução)",
-    "endereco_projeto": "(endereço no projeto)",
-    "endereco_lic_ambient": "(endereço na licença ambiental)",
-    "endereco_cnd": "(endereço na CND)",
-    "endereco_obs": ""
-  },
-  "cadastral": {
-    "endereco_completo": "(endereço completo da obra)",
-    "proprietario": "(nome do requerente/proprietário)",
-    "cpf_cnpj": "(CPF ou CNPJ do requerente)",
-    "autor_projeto_profissao": "(profissão do autor do projeto, ex: Arquiteto, Engenheiro)",
-    "autor_projeto_nome": "(nome do autor do projeto)",
-    "autor_projeto_orgao": "(órgão conselho, ex: CREA, CAU)",
-    "autor_projeto_rnp": "(número de registro RNP/RN)",
-    "executor_profissao": "(profissão do responsável técnico executor)",
-    "executor_nome": "(nome do responsável técnico executor)",
-    "executor_orgao": "(órgão executor, ex: CREA, CAU)",
-    "executor_rnp": "(registro RNP/RN executor)",
-    "tipo_construcao": "(tipo da construção)",
-    "qtd_unidades": "(quantidade de unidades habitacionais, ex: 1)",
-    "area_construida": "(área construída em m²)",
-    "area_construida_extenso": "(área construída por extenso)",
-    "qtd_pavimentos": "(quantidade de pavimentos)",
-    "qtd_pavimentos_extenso": "(quantidade de pavimentos por extenso)",
-    "qtd_banheiros": "(número de banheiros)",
-    "data_documento": "(data de emissão do documento principal)"
-  },
-  "checklist_tecnico": {
-    "taxa_ocupacao_projeto": "(taxa de ocupação no projeto, ex: '0.45')",
-    "coef_aproveitamento_projeto": "(coeficiente de aproveitamento no projeto, ex: '1.2')",
-    "recuo_frontal_projeto": "(recuo frontal no projeto)",
-    "recuo_lateral_projeto": "(recuo lateral no projeto)",
-    "recuo_fundos_projeto": "(recuo de fundos no projeto)",
-    "altura_muro_projeto": "(altura do muro no projeto)",
-    "area_telhado": "(área de telhado para drenagem se houver)",
-    "area_piso_impermeavel": "(área impermeável se houver)"
-  }${
-    checklistType === 'comercial' ? `, "projeto_comercial": {
-    "num_pavimentos": "(número de pavimentos em número inteiro)",
-    "testada_total": "(testada total do lote em metros)",
-    "drenagem_distancia_riacho": "(distância a riacho/lagoa, ou 'NSAPL' se não mencionado)",
-    "drenagem_distancia_canal": "(distância a canal/talvegue, ou 'NSAPL' se não mencionado)",
-    "art_rrt_atividade_corresponde": "(escreva 'corresponde' se a atividade do projeto bate com a ART, ou 'nao_corresponde')",
-    "art_rrt_area_art": "(área descrita na ART)",
-    "art_rrt_area_rrt": "(área descrita na RRT)",
-    "art_rrt_area_projeto": "(área do projeto arquitetônico)",
-    "eiv_terreno_area": "(área do terreno para EIV)",
-    "eiv_construida_area": "(área construída para EIV)",
-    "lixo_pavimentos": "(número de pavimentos para lixo)",
-    "lixo_economias": "(número de economias para lixo)",
-    "pe_direito_sala_name": "(nome do compartimento principal, ex: 'Salão Comercial')",
-    "pe_direito_sala_area": "(área da sala comercial)",
-    "pe_direito_sala_pe": "(pé-direito da sala comercial)",
-    "pe_direito_jirau_existe": "('sim' se existir mezanino/jirau nos documentos, caso contrário 'nao')",
-    "pe_direito_jirau_area": "(área do jirau)",
-    "pe_direito_jirau_acima": "(pé-direito acima do jirau)",
-    "pe_direito_jirau_abaixo": "(pé-direito abaixo do jirau)",
-    "medidas_lote_projeto": "(medidas/dimensões do lote no projeto)",
-    "medidas_lote_certidao": "(medidas/dimensões do lote na certidão/escritura)",
-    "confrontantes_frente_projeto": "(confrontante frente no projeto)",
-    "confrontantes_fundos_projeto": "(confrontante fundos no projeto)",
-    "confrontantes_ld_projeto": "(confrontante lado direito no projeto)",
-    "confrontantes_le_projeto": "(confrontante lado esquerdo no projeto)",
-    "confrontantes_frente_certidao": "(confrontante frente na certidão/escritura)",
-    "confrontantes_fundos_certidao": "(confrontante fundos na certidão/escritura)",
-    "confrontantes_ld_certidao": "(confrontante lado direito na certidão/escritura)",
-    "confrontantes_le_certidao": "(confrontante lado esquerdo na certidão/escritura)",
-    "estac_area_total_construida": "(área total construída do estacionamento)",
-    "estac_deducao_garagem": "(área de garagem/estacionamento para dedução)",
-    "estac_deducao_tecnica": "(área técnica/depósitos para dedução)",
-    "estac_deducao_circulacao": "(área de circulação vertical para dedução)",
-    "estac_deducao_lazer": "(área de lazer para dedução)",
-    "estac_deducao_fachada_ativa": "(área de fachada ativa)",
-    "estac_vagas_projeto": "(vagas projetadas)"
-  }` : checklistType === 'residencial' ? `, "projeto_estacionamento": {
-    "estac_area_total_construida": "(área total construída do estacionamento)",
-    "estac_deducao_garagem": "(área de garagem/estacionamento para dedução)",
-    "estac_deducao_tecnica": "(área técnica/depósitos para dedução)",
-    "estac_deducao_circulacao": "(área de circulação vertical para dedução)",
-    "estac_deducao_lazer": "(área de lazer para dedução)",
-    "estac_deducao_fachada_ativa": "(área de fachada ativa)",
-    "estac_vagas_projeto": "(vagas projetadas)"
-  }` : ''
-  }
-}
-`;
-
-      const VITE_GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-      if (!VITE_GEMINI_API_KEY) {
-        throw new Error('Chave de API do Gemini (VITE_GEMINI_API_KEY) não configurada no ambiente.');
-      }
-
-      // 5. Chamar API do Gemini diretamente via Fetch HTTP (Serverless)
-      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${VITE_GEMINI_API_KEY}`, {
+      // 3. Fazer requisição ao Backend local em Flask
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000';
+      const backendRes = await fetch(`${backendUrl}/api/run_auditoria`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: prompt_final }]
-            }
-          ],
-          generationConfig: {
-            responseMimeType: "application/json"
-          }
+          checklist_type: checklistType,
+          documents: docsToSend
         })
       });
 
-      if (!geminiRes.ok) {
-        throw new Error(`Falha na API do Gemini: ${geminiRes.statusText} (${geminiRes.status})`);
+      if (!backendRes.ok) {
+        let errMsg = 'Falha no processamento da auditoria.';
+        try {
+          const errData = await backendRes.json();
+          errMsg = errData.error || errMsg;
+        } catch (_) {}
+        throw new Error(errMsg);
       }
 
-      const resData = await geminiRes.json();
-      const rawText = resData?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-      
-      let parsedJson = {};
-      try {
-        parsedJson = JSON.parse(rawText.trim());
-      } catch (parseErr) {
-        console.warn('Erro ao fazer parse inicial do JSON, tentando limpar markdown blocks:', parseErr);
-        let cleanText = rawText.trim();
-        if (cleanText.startsWith("```json")) {
-          cleanText = cleanText.substring(7);
-        }
-        if (cleanText.endsWith("```")) {
-          cleanText = cleanText.substring(0, cleanText.length - 3);
-        }
-        parsedJson = JSON.parse(cleanText.trim());
-      }
+      const parsedJson = await backendRes.json();
+      console.log('[Auditoria Backend] Resposta estruturada do Gemini:', parsedJson);
 
-      console.log('[Auditoria Serverless] Resposta estruturada do Gemini:', parsedJson);
+      if (progressInterval) clearInterval(progressInterval);
+      setExtractionProgressPercent(100);
 
       // 6. Mesclar os resultados extraídos de volta no estado
 
@@ -1291,10 +1047,15 @@ Retorne APENAS um objeto JSON válido com o seguinte formato estruturado (sem bl
       await handleSaveChecklist(updatedChecklistData, false);
 
     } catch (err) {
+      if (progressInterval) clearInterval(progressInterval);
+      setExtractionProgressPercent(0);
       alert('Erro durante a extração técnica: ' + err.message);
       console.error(err);
     } finally {
       setExtractionLoading(false);
+      setTimeout(() => {
+        setExtractionProgressPercent(0);
+      }, 1000);
     }
   };
 
@@ -3653,20 +3414,43 @@ ON public.process_checklists FOR ALL TO authenticated USING (true) WITH CHECK (t
               </div>
             </div>
 
-            <div style={{ marginTop: '18px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <button 
-                type="button" 
-                className="btn btn-success" 
-                onClick={handleRunAuditoria} 
-                disabled={extractionLoading}
-                style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '8px' }}
-              >
-                {extractionLoading ? '⌛ Extraindo textos e rodando IA...' : '🤖 Iniciar Auditoria Automatizada'}
-              </button>
-              {extractionProgress && (
-                <span style={{ fontSize: '12px', color: 'var(--blue)', fontWeight: '500' }}>
-                  {extractionProgress}
-                </span>
+            <div style={{ marginTop: '18px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-success" 
+                  onClick={handleRunAuditoria} 
+                  disabled={extractionLoading}
+                  style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  {extractionLoading ? '⌛ Extraindo textos e rodando IA...' : '🤖 Iniciar Auditoria Automatizada'}
+                </button>
+                {extractionProgress && (
+                  <span style={{ fontSize: '12px', color: 'var(--blue)', fontWeight: '500' }}>
+                    {extractionProgress}
+                  </span>
+                )}
+              </div>
+              
+              {extractionLoading && (
+                <div style={{ 
+                  width: '100%', 
+                  maxWidth: '450px', 
+                  height: '6px', 
+                  background: 'rgba(148, 163, 184, 0.2)', 
+                  borderRadius: '3px', 
+                  overflow: 'hidden',
+                  marginTop: '2px',
+                  boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.1)'
+                }}>
+                  <div style={{ 
+                    width: `${extractionProgressPercent}%`, 
+                    height: '100%', 
+                    background: 'linear-gradient(90deg, #10B981, #3B82F6)', 
+                    transition: 'width 0.4s ease-out',
+                    borderRadius: '3px'
+                  }} />
+                </div>
               )}
             </div>
           </div>

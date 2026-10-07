@@ -46,3 +46,5 @@ fetch_db.js
 .env
 .env.local
 
+# Arquivos e pastas de referências pesadas
+livros/
