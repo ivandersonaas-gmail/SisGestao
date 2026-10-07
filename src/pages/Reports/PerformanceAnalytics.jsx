@@ -547,7 +547,8 @@ export function PerformanceAnalytics() {
     // 1. Gráfico de Tendência (Média de Prazos por Mês)
     const mesesAgrupados = {};
     concluidos.forEach(p => {
-      const d = new Date(p.dataProtocolo);
+      const dataRefTrend = (baseTemporal === 'conclusao' && p.dataConclusao) ? p.dataConclusao : p.dataProtocolo;
+      const d = new Date(dataRefTrend);
       const label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (!mesesAgrupados[label]) mesesAgrupados[label] = { total: 0, soma: 0 };
       mesesAgrupados[label].total++;
@@ -619,12 +620,29 @@ export function PerformanceAnalytics() {
 
     // 3. Gráfico de Produtividade por Período (Finalizados vs Novos)
     const agrupadoProd = {};
+
+    // 3.1 Novos Protocolos (agrupados pelo mês de entrada/protocolo)
     filteredData.forEach(p => {
-      const d = new Date(p.dataProtocolo);
-      const label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (!agrupadoProd[label]) agrupadoProd[label] = { novos: 0, concluido: 0 };
-      agrupadoProd[label].novos++;
-      if (p.estaConcluido) agrupadoProd[label].concluido++;
+      if (p.dataProtocolo) {
+        const d = new Date(p.dataProtocolo);
+        if (!isNaN(d.getTime())) {
+          const label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          if (!agrupadoProd[label]) agrupadoProd[label] = { novos: 0, concluido: 0 };
+          agrupadoProd[label].novos++;
+        }
+      }
+    });
+
+    // 3.2 Concluídos (agrupados pelo mês real em que foram finalizados/despachados)
+    filteredData.forEach(p => {
+      if (p.estaConcluido && p.dataConclusao) {
+        const d = new Date(p.dataConclusao);
+        if (!isNaN(d.getTime())) {
+          const label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          if (!agrupadoProd[label]) agrupadoProd[label] = { novos: 0, concluido: 0 };
+          agrupadoProd[label].concluido++;
+        }
+      }
     });
 
     const sortedProd = Object.keys(agrupadoProd).sort();
